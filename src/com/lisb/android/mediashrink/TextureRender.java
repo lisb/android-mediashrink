@@ -67,9 +67,11 @@ class TextureRender {
             "  gl_FragColor = texture2D(sTexture, vTextureCoord);\n" +
             "}\n";
 
-    private float[] mMVPMatrix = new float[16];
-    private float[] mSTMatrix = new float[16];
+    private final float[] mMVPMatrix = new float[16];
+    private final float[] mSTMatrix = new float[16];
 
+    private final float mRotation;
+    
     private int mProgram;
     private int mTextureID = -12345;
     private int muMVPMatrixHandle;
@@ -77,7 +79,9 @@ class TextureRender {
     private int maPositionHandle;
     private int maTextureHandle;
 
-    public TextureRender() {
+    public TextureRender(float rotation) {
+    	this.mRotation = rotation;
+    	
         mTriangleVertices = ByteBuffer.allocateDirect(
             mTriangleVerticesData.length * FLOAT_SIZE_BYTES)
                 .order(ByteOrder.nativeOrder()).asFloatBuffer();
@@ -118,6 +122,7 @@ class TextureRender {
         checkGlError("glEnableVertexAttribArray maTextureHandle");
 
         Matrix.setIdentityM(mMVPMatrix, 0);
+        Matrix.rotateM(mMVPMatrix, 0, mRotation, 0, 0, 1.0f);
         GLES20.glUniformMatrix4fv(muMVPMatrixHandle, 1, false, mMVPMatrix, 0);
         GLES20.glUniformMatrix4fv(muSTMatrixHandle, 1, false, mSTMatrix, 0);
 

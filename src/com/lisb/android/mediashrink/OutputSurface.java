@@ -53,16 +53,16 @@ class OutputSurface implements SurfaceTexture.OnFrameAvailableListener {
      * Creates an OutputSurface using the current EGL context.  Creates a Surface that can be
      * passed to MediaCodec.configure().
      */
-    public OutputSurface() {
-        setup();
+    public OutputSurface(float rotation) {
+        setup(rotation);
     }
 
     /**
      * Creates instances of TextureRender and SurfaceTexture, and a Surface associated
      * with the SurfaceTexture.
      */
-    private void setup() {
-        mTextureRender = new TextureRender();
+    private void setup(float rotation) {
+        mTextureRender = new TextureRender(rotation);
         mTextureRender.surfaceCreated();
 
         // Even if we don't access the SurfaceTexture after the constructor returns, we

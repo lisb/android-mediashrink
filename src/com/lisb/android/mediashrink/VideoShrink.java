@@ -16,9 +16,10 @@ public class VideoShrink {
 	private static final String LOG_TAG = VideoShrink.class.getSimpleName();
 	private static final long TIMEOUT_USEC = 250;
 
-	private MediaExtractor extractor;
-	private MediaMetadataRetriever metadataRetriever;
-	private MediaMuxer muxer;
+	private final MediaExtractor extractor;
+	private final MediaMetadataRetriever metadataRetriever;
+	private final MediaMuxer muxer;
+	private final int rotation;
 
 	private int maxWidth = -1;
 	private int maxHeight = -1;
@@ -29,6 +30,10 @@ public class VideoShrink {
 		this.extractor = extractor;
 		this.metadataRetriever = retriever;
 		this.muxer = muxer;
+
+		this.rotation = Integer
+				.parseInt(metadataRetriever
+						.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION));
 	}
 
 	public void setMaxWidth(int maxWidth) {
@@ -56,8 +61,6 @@ public class VideoShrink {
 	 * {@link MediaMuxer#addTrack(MediaFormat)} に利用したりできない。
 	 */
 	private MediaFormat createEncoderConfigurationFormat(MediaFormat origin) {
-		// TODO ビットレートが現在のサイズより大きくならないようにする。
-
 		// TODO アスペクト比を保ったまま、16の倍数になるように width, height を指定する。
 		// TODO 回転を考慮に入れる
 		final int width = maxWidth > 0 ? maxWidth : origin
@@ -75,7 +78,7 @@ public class VideoShrink {
 		final long playDuration = Long.valueOf(metadataRetriever
 				.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)) / 1000;
 		int bitrate = (int) (maxSize / playDuration * 8);
-		if (bitrate > 1024 * 1024) { // FIXME
+		if (bitrate > 1024 * 1024) { // TODO ビットレートが現在のサイズより大きくならないようにする。
 			bitrate = 1024 * 1024;
 		}
 		Log.v(LOG_TAG, "playDuration:" + playDuration + ", bit-rate=" + bitrate);
@@ -93,7 +96,7 @@ public class VideoShrink {
 		inputSurface.makeCurrent();
 		encoder.start();
 
-		final OutputSurface outputSurface = new OutputSurface();
+		final OutputSurface outputSurface = new OutputSurface(-rotation);
 		final MediaCodec decoder = createDecoder(currentFormat,
 				outputSurface.getSurface());
 		decoder.start();
@@ -189,14 +192,13 @@ public class VideoShrink {
 		final MediaFormat currentFormat = extractor.getTrackFormat(trackIndex);
 		final MediaFormat newFormat = createEncoderConfigurationFormat(currentFormat);
 
-		// TODO 回転を考慮に入れる
 		final MediaCodec encoder = createEncoder(newFormat);
 		final InputSurface inputSurface = new InputSurface(
 				encoder.createInputSurface());
 		inputSurface.makeCurrent();
 		encoder.start();
 
-		final OutputSurface outputSurface = new OutputSurface();
+		final OutputSurface outputSurface = new OutputSurface(-rotation);
 		final MediaCodec decoder = createDecoder(currentFormat,
 				outputSurface.getSurface());
 		decoder.start();
