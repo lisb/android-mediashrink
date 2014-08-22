@@ -235,6 +235,8 @@ public class VideoShrink {
 			decoder.stop();
 			decoder.release();
 			outputSurface.release();
+			
+			extractor.unselectTrack(trackIndex);
 		}
 	}
 
@@ -364,6 +366,8 @@ public class VideoShrink {
 			decoder.stop();
 			decoder.release();
 			outputSurface.release();
+			
+			extractor.unselectTrack(trackIndex);
 		}
 	}
 
