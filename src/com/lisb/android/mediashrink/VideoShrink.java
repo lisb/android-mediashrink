@@ -37,10 +37,18 @@ public class VideoShrink {
 	}
 
 	public void setMaxWidth(int maxWidth) {
+		if (maxWidth > 0 && maxWidth % 16 > 0) {
+			throw new IllegalArgumentException(
+					"Only multiples of 16 is supported.");
+		}
 		this.maxWidth = maxWidth;
 	}
 
 	public void setMaxHeight(int maxHeight) {
+		if (maxHeight > 0 && maxHeight % 16 > 0) {
+			throw new IllegalArgumentException(
+					"Only multiples of 16 is supported.");
+		}
 		this.maxHeight = maxHeight;
 	}
 
@@ -61,12 +69,39 @@ public class VideoShrink {
 	 * {@link MediaMuxer#addTrack(MediaFormat)} に利用したりできない。
 	 */
 	private MediaFormat createEncoderConfigurationFormat(MediaFormat origin) {
-		// TODO アスペクト比を保ったまま、16の倍数になるように width, height を指定する。
-		// TODO 回転を考慮に入れる
-		final int width = maxWidth > 0 ? maxWidth : origin
-				.getInteger(MediaFormat.KEY_WIDTH);
-		final int height = maxHeight > 0 ? maxHeight : origin
-				.getInteger(MediaFormat.KEY_HEIGHT);
+		final int originWidth;
+		final int originHeight;
+		if (rotation == 90 || rotation == 270) {
+			originWidth = origin.getInteger(MediaFormat.KEY_HEIGHT);
+			originHeight = origin.getInteger(MediaFormat.KEY_WIDTH);
+		} else {
+			originWidth = origin.getInteger(MediaFormat.KEY_WIDTH);
+			originHeight = origin.getInteger(MediaFormat.KEY_HEIGHT);
+		}
+
+		// アスペクト比を保ったまま、16の倍数になるように(エンコードの制限) width, height を指定する。
+		final int width;
+		final int height;
+		float widthRatio = 1;
+		if (maxWidth > 0) {
+			widthRatio = (float) maxWidth / originWidth;
+		}
+		float heightRatio = 1;
+		if (maxHeight > 0) {
+			heightRatio = (float) maxHeight / originHeight;
+		}
+
+		if (widthRatio == heightRatio) {
+			width = maxWidth;
+			height = maxHeight;
+		} else if (widthRatio < heightRatio) {
+			width = maxWidth;
+			height = getMultipliesOf16(originHeight * widthRatio);
+		} else {
+			width = getMultipliesOf16(originWidth * heightRatio);
+			height = maxHeight;
+		}
+
 		final MediaFormat format = MediaFormat.createVideoFormat("video/avc",
 				width, height);
 		format.setInteger(MediaFormat.KEY_COLOR_FORMAT,
@@ -81,9 +116,24 @@ public class VideoShrink {
 		if (bitrate > 1024 * 1024) { // TODO ビットレートが現在のサイズより大きくならないようにする。
 			bitrate = 1024 * 1024;
 		}
-		Log.v(LOG_TAG, "playDuration:" + playDuration + ", bit-rate=" + bitrate);
 		format.setInteger(MediaFormat.KEY_BIT_RATE, bitrate);
+
+		Log.d(LOG_TAG, "create encoder configuration format:" + format);
+
 		return format;
+	}
+
+	/**
+	 * 指定された数字に最も近い16の倍数の値を返す
+	 */
+	private int getMultipliesOf16(float number) {
+		final int round = Math.round(number);
+		final int rem = round % 16;
+		if (rem < 8) {
+			return round - rem;
+		} else {
+			return round + 16 - rem;
+		}
 	}
 
 	public MediaFormat createOutputFormat(final int trackIndex) {
