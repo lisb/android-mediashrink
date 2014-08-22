@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+	<LinearLayout
+	    android:layout_width="match_parent"
+	    android:layout_height="match_parent"
+	    android:orientation="vertical" >
+	
+	    <Button
+	        android:id="@+id/btn_select_video"
+	        android:layout_width="wrap_content"
+	        android:layout_height="wrap_content"
+	        android:text="Select Video" />
+	    
+	    <TextView
+	        android:id="@+id/txt_selected_video_path"
+	        style="@android:style/TextAppearance.DeviceDefault.Small"
+	        android:layout_width="wrap_content"
+	        android:layout_height="wrap_content"
+	        />
+	    
+	    <Button
+	        android:id="@+id/btn_play_selected_video"
+	        android:layout_width="wrap_content"
+	        android:layout_height="wrap_content"
+	        android:enabled="false"
+	        android:text="Play Selected Video"
+	        />
+	    
+	    <Button
+	        android:id="@+id/btn_start_reencoding"
+	        android:layout_width="wrap_content"
+	        android:layout_height="wrap_content"
+	        android:enabled="false"
+	        android:text="Start reencoding"
+	        />
+	    
+	    <ImageView
+	        android:id="@+id/thumbnail"
+	        android:layout_width="wrap_content"
+	        android:layout_height="wrap_content"
+	        />
+	    
+	    <Button
+	        android:id="@+id/btn_play_reencoded_video"
+	        android:layout_width="wrap_content"
+	        android:layout_height="wrap_content"
+	        android:enabled="false"
+	        android:text="Play Reencoded Video"
+	        />
+	    
+	</LinearLayout>
+	
+	<FrameLayout
+	    android:id="@android:id/progress"
+	    android:layout_width="match_parent"
+		android:layout_height="match_parent"
+		android:background="#70000000"
+		android:visibility="gone"
+	    >
+		<ProgressBar
+	        style="@android:style/Widget.Holo.ProgressBar.Large"
+	        android:layout_width="wrap_content"
+	        android:layout_height="wrap_content"
+	        android:layout_gravity="center"
+	        android:indeterminate="true"
+	        android:visibility="visible" 
+	        />
+	</FrameLayout>
+	
+</FrameLayout>
