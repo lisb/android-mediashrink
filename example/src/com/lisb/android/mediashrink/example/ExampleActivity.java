@@ -1,4 +1,4 @@
-package com.lisb.android.mediashrink;
+package com.lisb.android.mediashrink.example;
 
 import java.io.File;
 import java.io.IOException;
@@ -22,8 +22,11 @@ import android.view.View.OnClickListener;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.lisb.android.mediashrink.R.id;
-import com.lisb.android.mediashrink.R.layout;
+import com.lisb.android.mediashrink.MediaShrink;
+import com.lisb.android.mediashrink.example.R;
+import com.lisb.android.mediashrink.example.R.id;
+import com.lisb.android.mediashrink.example.R.layout;
+import com.lisb.android.mediashrink.example.R.menu;
 
 public class ExampleActivity extends Activity implements OnClickListener {
 

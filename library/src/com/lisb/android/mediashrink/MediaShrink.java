@@ -26,8 +26,6 @@ public class MediaShrink {
 	private long maxSize = 0;
 	private String output;
 
-	// TODO workspace の設定
-
 	public static MediaShrink createMediaShrink(final Context context) {
 		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR2) {
 			return null;
