@@ -78,15 +78,16 @@ public class MediaShrink {
 			// トラックの作成。
 			for (int i = 0, length = extractor.getTrackCount(); i < length; i++) {
 				final MediaFormat format = extractor.getTrackFormat(i);
-				if (videoShrink == null) {
-					videoShrink = new VideoShrink(extractor, metadataRetriever,
-							muxer);
-					videoShrink.setMaxWidth(maxWidth);
-					videoShrink.setMaxHeight(maxHeight);
-					videoShrink.setMaxSize(maxSize); // TODO audio分のサイズを差し引く。
-				}
-
+				Log.d(LOG_TAG, "track [" + i + "] format: " + format);
 				if (isVideoFormat(format)) {
+					if (videoShrink == null) {
+						videoShrink = new VideoShrink(extractor,
+								metadataRetriever, muxer);
+						videoShrink.setMaxWidth(maxWidth);
+						videoShrink.setMaxHeight(maxHeight);
+						videoShrink.setMaxSize(maxSize); // TODO
+															// audio分のサイズを差し引く。
+					}
 					muxer.addTrack(videoShrink.createOutputFormat(i));
 				} else {
 					muxer.addTrack(format);

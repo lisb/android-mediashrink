@@ -4,6 +4,7 @@ import java.nio.ByteBuffer;
 
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
+import android.media.MediaCodecInfo.CodecProfileLevel;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.media.MediaMetadataRetriever;
@@ -14,7 +15,12 @@ import android.view.Surface;
 public class VideoShrink {
 
 	private static final String LOG_TAG = VideoShrink.class.getSimpleName();
+
+	private static final String CODEC = "video/avc";
 	private static final long TIMEOUT_USEC = 250;
+	private static final int I_FRAME_INTERVAL = 5;
+	private static final float FRAMERATE = 30f;
+	private static final float MAX_BPP = 0.25f;
 
 	private final MediaExtractor extractor;
 	private final MediaMetadataRetriever metadataRetriever;
@@ -102,25 +108,32 @@ public class VideoShrink {
 			height = maxHeight;
 		}
 
-		final MediaFormat format = MediaFormat.createVideoFormat("video/avc",
-				width, height);
+		final MediaFormat format = MediaFormat.createVideoFormat(CODEC, width,
+				height);
 		format.setInteger(MediaFormat.KEY_COLOR_FORMAT,
 				MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-		format.setFloat(MediaFormat.KEY_FRAME_RATE, 15); // TODO 外から指定できるようにする
-		format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 5); // TODO
-																// 外から指定できるようにする
+		format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL);
 
 		final long playDuration = Long.valueOf(metadataRetriever
 				.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)) / 1000;
-		int bitrate = (int) (maxSize / playDuration * 8);
-		if (bitrate > 1024 * 1024) { // TODO ビットレートが現在のサイズより大きくならないようにする。
-			bitrate = 1024 * 1024;
+		final int maxBitrate = getMaxBitrate(FRAMERATE, width, height);
+		int newBitrate = (int) (maxSize / playDuration * 8);
+		Log.d(LOG_TAG, "max bit-rate: " + maxBitrate + "bps, new bit-rate: "
+				+ newBitrate + "bps");
+		if (newBitrate > maxBitrate) {
+			newBitrate = maxBitrate;
 		}
-		format.setInteger(MediaFormat.KEY_BIT_RATE, bitrate);
+		format.setInteger(MediaFormat.KEY_BIT_RATE, newBitrate);
+		format.setFloat(MediaFormat.KEY_FRAME_RATE, FRAMERATE);
 
 		Log.d(LOG_TAG, "create encoder configuration format:" + format);
 
 		return format;
+	}
+
+	private int getMaxBitrate(final float frameRate, final int width,
+			final int height) {
+		return Math.round(MAX_BPP * frameRate * width * height);
 	}
 
 	/**
@@ -136,11 +149,34 @@ public class VideoShrink {
 		}
 	}
 
+	private String toString(final CodecProfileLevel[] profileLevels) {
+		final StringBuilder builder = new StringBuilder();
+		for (final CodecProfileLevel profileLevel : profileLevels) {
+			if (builder.length() > 0) {
+				builder.append(", ");
+			} else {
+				builder.append('[');
+			}
+			builder.append('{');
+			builder.append("profile:");
+			builder.append(profileLevel.profile);
+			builder.append(",level:");
+			builder.append(profileLevel.level);
+			builder.append('}');
+		}
+		builder.append(']');
+		return builder.toString();
+	}
+
 	public MediaFormat createOutputFormat(final int trackIndex) {
 		final MediaFormat currentFormat = extractor.getTrackFormat(trackIndex);
 		final MediaFormat newFormat = createEncoderConfigurationFormat(currentFormat);
 
 		final MediaCodec encoder = createEncoder(newFormat);
+		Log.d(LOG_TAG,
+				"encoder codec profile: "
+						+ toString(encoder.getCodecInfo()
+								.getCapabilitiesForType(CODEC).profileLevels));
 		final InputSurface inputSurface = new InputSurface(
 				encoder.createInputSurface());
 		inputSurface.makeCurrent();
@@ -188,6 +224,11 @@ public class VideoShrink {
 				while (!decoderDone) {
 					int decoderOutputBufferIndex = decoder.dequeueOutputBuffer(
 							decoderOutputBufferInfo, TIMEOUT_USEC);
+					if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+						Log.d(LOG_TAG, "decoder output format changed. format:"
+								+ decoder.getOutputFormat());
+						break;
+					}
 					if (decoderOutputBufferIndex < 0) {
 						break;
 					}
@@ -200,11 +241,9 @@ public class VideoShrink {
 					decoder.releaseOutputBuffer(decoderOutputBufferIndex,
 							render);
 					if (render) {
-						Log.d(LOG_TAG, "output surface: await new image");
 						outputSurface.drawNewImage();
 						inputSurface
 								.setPresentationTime(decoderOutputBufferInfo.presentationTimeUs * 1000);
-						Log.d(LOG_TAG, "input surface: swap buffers");
 						inputSurface.swapBuffers();
 					}
 					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
@@ -235,7 +274,7 @@ public class VideoShrink {
 			decoder.stop();
 			decoder.release();
 			outputSurface.release();
-			
+
 			extractor.unselectTrack(trackIndex);
 		}
 	}
@@ -312,11 +351,9 @@ public class VideoShrink {
 					decoder.releaseOutputBuffer(decoderOutputBufferIndex,
 							render);
 					if (render) {
-						Log.d(LOG_TAG, "output surface: await new image");
 						outputSurface.drawNewImage();
 						inputSurface
 								.setPresentationTime(decoderOutputBufferInfo.presentationTimeUs * 1000);
-						Log.d(LOG_TAG, "input surface: swap buffers");
 						inputSurface.swapBuffers();
 					}
 					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
@@ -366,7 +403,7 @@ public class VideoShrink {
 			decoder.stop();
 			decoder.release();
 			outputSurface.release();
-			
+
 			extractor.unselectTrack(trackIndex);
 		}
 	}
