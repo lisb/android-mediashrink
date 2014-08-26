@@ -6,64 +6,32 @@ import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
-import android.media.MediaMetadataRetriever;
 import android.media.MediaMuxer;
 import android.util.Log;
-import android.view.Surface;
 
-public class VideoShrink {
+public class AudioShrink {
 
-	private static final String LOG_TAG = VideoShrink.class.getSimpleName();
+	private static final String LOG_TAG = AudioShrink.class.getSimpleName();
+	private static final boolean VERBOSE = true;
 
-	private static final String CODEC = "video/avc";
 	private static final long TIMEOUT_USEC = 250;
-	private static final int I_FRAME_INTERVAL = 5;
-	private static final float FRAMERATE = 30f;
+	private static final String CODEC = "audio/mp4a-latm";
+	private static final int AAC_PROFILE = MediaCodecInfo.CodecProfileLevel.AACObjectLC;
+	private int bitRate;
 
 	private final MediaExtractor extractor;
-	private final MediaMetadataRetriever metadataRetriever;
 	private final MediaMuxer muxer;
-	private final int rotation;
 
-	private int bitRate;
-	private int maxWidth = -1;
-	private int maxHeight = -1;
-
-	public VideoShrink(final MediaExtractor extractor,
-			final MediaMetadataRetriever retriever, final MediaMuxer muxer) {
+	public AudioShrink(MediaExtractor extractor, MediaMuxer muxer) {
 		this.extractor = extractor;
-		this.metadataRetriever = retriever;
 		this.muxer = muxer;
-
-		this.rotation = Integer
-				.parseInt(metadataRetriever
-						.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION));
-	}
-
-	public void setMaxWidth(int maxWidth) {
-		if (maxWidth > 0 && maxWidth % 16 > 0) {
-			throw new IllegalArgumentException(
-					"Only multiples of 16 is supported.");
-		}
-		this.maxWidth = maxWidth;
-	}
-
-	public void setMaxHeight(int maxHeight) {
-		if (maxHeight > 0 && maxHeight % 16 > 0) {
-			throw new IllegalArgumentException(
-					"Only multiples of 16 is supported.");
-		}
-		this.maxHeight = maxHeight;
 	}
 
 	public void setBitRate(int bitRate) {
 		this.bitRate = bitRate;
 	}
 
-	/**
-	 * @return サポートしている形式か否か
-	 */
-	public boolean isSupportFormat(final int trackIndex) {
+	public boolean isSupportFormat(int trackIndex) {
 		// TODO
 		return true;
 	}
@@ -73,65 +41,16 @@ public class VideoShrink {
 	 * {@link MediaMuxer#addTrack(MediaFormat)} には利用できない。
 	 */
 	private MediaFormat createEncoderConfigurationFormat(MediaFormat origin) {
-		final int originWidth;
-		final int originHeight;
-		if (rotation == 90 || rotation == 270) {
-			originWidth = origin.getInteger(MediaFormat.KEY_HEIGHT);
-			originHeight = origin.getInteger(MediaFormat.KEY_WIDTH);
-		} else {
-			originWidth = origin.getInteger(MediaFormat.KEY_WIDTH);
-			originHeight = origin.getInteger(MediaFormat.KEY_HEIGHT);
-		}
-
-		// アスペクト比を保ったまま、16の倍数になるように(エンコードの制限) width, height を指定する。
-		final int width;
-		final int height;
-		float widthRatio = 1;
-		if (maxWidth > 0) {
-			widthRatio = (float) maxWidth / originWidth;
-		}
-		float heightRatio = 1;
-		if (maxHeight > 0) {
-			heightRatio = (float) maxHeight / originHeight;
-		}
-
-		if (widthRatio == heightRatio) {
-			width = maxWidth;
-			height = maxHeight;
-		} else if (widthRatio < heightRatio) {
-			width = maxWidth;
-			height = getMultipliesOf16(originHeight * widthRatio);
-		} else {
-			width = getMultipliesOf16(originWidth * heightRatio);
-			height = maxHeight;
-		}
-
-		final MediaFormat format = MediaFormat.createVideoFormat(CODEC, width,
-				height);
-		format.setInteger(MediaFormat.KEY_COLOR_FORMAT,
-				MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-		format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL);
-
+		final MediaFormat format = MediaFormat.createAudioFormat(CODEC,
+				origin.getInteger(MediaFormat.KEY_SAMPLE_RATE),
+				origin.getInteger(MediaFormat.KEY_CHANNEL_COUNT));
 		// TODO ビットレートが元の値より大きくならないようにする
 		format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
-		format.setFloat(MediaFormat.KEY_FRAME_RATE, FRAMERATE);
-
-		Log.d(LOG_TAG, "create encoder configuration format:" + format);
+		format.setInteger(MediaFormat.KEY_AAC_PROFILE, AAC_PROFILE);
+		
+		Log.d(LOG_TAG, "create audio encoder configuration format:" + format);
 
 		return format;
-	}
-
-	/**
-	 * 指定された数字に最も近い16の倍数の値を返す
-	 */
-	private int getMultipliesOf16(float number) {
-		final int round = Math.round(number);
-		final int rem = round % 16;
-		if (rem < 8) {
-			return round - rem;
-		} else {
-			return round + 16 - rem;
-		}
 	}
 
 	public MediaFormat createOutputFormat(final int trackIndex) {
@@ -139,29 +58,25 @@ public class VideoShrink {
 		final MediaFormat newFormat = createEncoderConfigurationFormat(currentFormat);
 
 		final MediaCodec encoder = createEncoder(newFormat);
-		Log.d(LOG_TAG,
-				"encoder codec profile: "
-						+ Utils.toString(encoder.getCodecInfo()
-								.getCapabilitiesForType(CODEC).profileLevels));
-		final InputSurface inputSurface = new InputSurface(
-				encoder.createInputSurface());
-		inputSurface.makeCurrent();
 		encoder.start();
 
-		final OutputSurface outputSurface = new OutputSurface(-rotation);
-		final MediaCodec decoder = createDecoder(currentFormat,
-				outputSurface.getSurface());
+		final MediaCodec decoder = createDecoder(currentFormat);
 		decoder.start();
 
 		try {
 			extractor.selectTrack(trackIndex);
 
 			final ByteBuffer[] decoderInputBuffers = decoder.getInputBuffers();
+			ByteBuffer[] decoderOutputBuffers = decoder.getOutputBuffers();
 			final MediaCodec.BufferInfo decoderOutputBufferInfo = new MediaCodec.BufferInfo();
+
+			final ByteBuffer[] encoderInputBuffers = encoder.getOutputBuffers();
 			final MediaCodec.BufferInfo encoderOutputBufferInfo = new MediaCodec.BufferInfo();
 
 			boolean extractorDone = false;
 			boolean decoderDone = false;
+
+			int pendingDecoderOutputBufferIndex = -1;
 
 			while (true) {
 				while (!extractorDone) {
@@ -180,16 +95,22 @@ public class VideoShrink {
 					}
 					extractorDone = !extractor.advance();
 					if (extractorDone) {
-						Log.d(LOG_TAG, "video extractor: EOS");
+						Log.d(LOG_TAG, "audio extractor: EOS");
 						decoder.queueInputBuffer(decoderInputBufferIndex, 0, 0,
 								0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
 					}
 					break;
 				}
 
-				while (!decoderDone) {
-					int decoderOutputBufferIndex = decoder.dequeueOutputBuffer(
-							decoderOutputBufferInfo, TIMEOUT_USEC);
+				while (!decoderDone && pendingDecoderOutputBufferIndex == -1) {
+					final int decoderOutputBufferIndex = decoder
+							.dequeueOutputBuffer(decoderOutputBufferInfo,
+									TIMEOUT_USEC);
+					if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
+						Log.d(LOG_TAG, "audio decoder: output buffers changed");
+						decoderOutputBuffers = decoder.getOutputBuffers();
+						break;
+					}
 					if (decoderOutputBufferIndex < 0) {
 						break;
 					}
@@ -198,19 +119,36 @@ public class VideoShrink {
 								false);
 						break;
 					}
-					final boolean render = decoderOutputBufferInfo.size != 0;
-					decoder.releaseOutputBuffer(decoderOutputBufferIndex,
-							render);
-					if (render) {
-						outputSurface.drawNewImage();
-						inputSurface
-								.setPresentationTime(decoderOutputBufferInfo.presentationTimeUs * 1000);
-						inputSurface.swapBuffers();
+					pendingDecoderOutputBufferIndex = decoderOutputBufferIndex;
+					break;
+				}
+
+				while (pendingDecoderOutputBufferIndex != -1) {
+					final int encoderInputBufferIndex = encoder
+							.dequeueInputBuffer(TIMEOUT_USEC);
+					if (encoderInputBufferIndex < 0) {
+						break;
 					}
+					final ByteBuffer encoderInputBuffer = encoderInputBuffers[encoderInputBufferIndex];
+					final ByteBuffer decoderOutputBuffer = decoderOutputBuffers[pendingDecoderOutputBufferIndex]
+							.duplicate();
+					decoderOutputBuffer
+							.position(decoderOutputBufferInfo.offset);
+					decoderOutputBuffer.limit(decoderOutputBufferInfo.offset
+							+ decoderOutputBufferInfo.size);
+					encoderInputBuffer.position(0);
+					encoderInputBuffer.put(decoderOutputBuffer);
+
+					encoder.queueInputBuffer(encoderInputBufferIndex, 0,
+							decoderOutputBufferInfo.size,
+							decoderOutputBufferInfo.presentationTimeUs,
+							decoderOutputBufferInfo.flags);
+
+					decoder.releaseOutputBuffer(
+							pendingDecoderOutputBufferIndex, false);
+					pendingDecoderOutputBufferIndex = -1;
 					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-						Log.d(LOG_TAG, "video decoder: EOS");
 						decoderDone = true;
-						encoder.signalEndOfInputStream();
 					}
 					break;
 				}
@@ -231,10 +169,8 @@ public class VideoShrink {
 		} finally {
 			encoder.stop();
 			encoder.release();
-			inputSurface.release();
 			decoder.stop();
 			decoder.release();
-			outputSurface.release();
 
 			extractor.unselectTrack(trackIndex);
 		}
@@ -245,28 +181,27 @@ public class VideoShrink {
 		final MediaFormat newFormat = createEncoderConfigurationFormat(currentFormat);
 
 		final MediaCodec encoder = createEncoder(newFormat);
-		final InputSurface inputSurface = new InputSurface(
-				encoder.createInputSurface());
-		inputSurface.makeCurrent();
 		encoder.start();
 
-		final OutputSurface outputSurface = new OutputSurface(-rotation);
-		final MediaCodec decoder = createDecoder(currentFormat,
-				outputSurface.getSurface());
+		final MediaCodec decoder = createDecoder(currentFormat);
 		decoder.start();
 
 		try {
 			extractor.selectTrack(trackIndex);
 
 			final ByteBuffer[] decoderInputBuffers = decoder.getInputBuffers();
+			ByteBuffer[] decoderOutputBuffers = decoder.getOutputBuffers();
 			final MediaCodec.BufferInfo decoderOutputBufferInfo = new MediaCodec.BufferInfo();
 
+			final ByteBuffer[] encoderInputBuffers = encoder.getInputBuffers();
 			ByteBuffer[] encoderOutputBuffers = encoder.getOutputBuffers();
 			final MediaCodec.BufferInfo encoderOutputBufferInfo = new MediaCodec.BufferInfo();
 
 			boolean extractorDone = false;
 			boolean decoderDone = false;
 			boolean encoderDone = false;
+
+			int pendingDecoderOutputBufferIndex = -1;
 
 			while (!encoderDone) {
 				while (!extractorDone) {
@@ -278,6 +213,16 @@ public class VideoShrink {
 					final ByteBuffer decoderInputBuffer = decoderInputBuffers[decoderInputBufferIndex];
 					final int size = extractor.readSampleData(
 							decoderInputBuffer, 0);
+
+					if (VERBOSE) {
+						Log.v(LOG_TAG,
+								"audio extractor output. size:" + size
+										+ ", sample time:"
+										+ extractor.getSampleTime()
+										+ ", sample flags:"
+										+ extractor.getSampleFlags());
+					}
+
 					if (size >= 0) {
 						decoder.queueInputBuffer(decoderInputBufferIndex, 0,
 								size, extractor.getSampleTime(),
@@ -285,37 +230,71 @@ public class VideoShrink {
 					}
 					extractorDone = !extractor.advance();
 					if (extractorDone) {
-						Log.d(LOG_TAG, "video extractor: EOS");
+						Log.d(LOG_TAG, "audio extractor: EOS");
 						decoder.queueInputBuffer(decoderInputBufferIndex, 0, 0,
 								0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
 					}
 					break;
 				}
 
-				while (!decoderDone) {
-					int decoderOutputBufferIndex = decoder.dequeueOutputBuffer(
-							decoderOutputBufferInfo, TIMEOUT_USEC);
+				while (!decoderDone && pendingDecoderOutputBufferIndex == -1) {
+					final int decoderOutputBufferIndex = decoder
+							.dequeueOutputBuffer(decoderOutputBufferInfo,
+									TIMEOUT_USEC);
+					if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
+						Log.d(LOG_TAG, "audio decoder: output buffers changed");
+						decoderOutputBuffers = decoder.getOutputBuffers();
+						break;
+					}
 					if (decoderOutputBufferIndex < 0) {
 						break;
 					}
+
+					if (VERBOSE) {
+						Log.v(LOG_TAG, "audio decoder output. time:"
+								+ decoderOutputBufferInfo.presentationTimeUs
+								+ ", offset:" + decoderOutputBufferInfo.offset
+								+ ", size:" + decoderOutputBufferInfo.size
+								+ ", flag:" + decoderOutputBufferInfo.flags);
+					}
+
 					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
 						decoder.releaseOutputBuffer(decoderOutputBufferIndex,
 								false);
 						break;
 					}
-					final boolean render = decoderOutputBufferInfo.size != 0;
-					decoder.releaseOutputBuffer(decoderOutputBufferIndex,
-							render);
-					if (render) {
-						outputSurface.drawNewImage();
-						inputSurface
-								.setPresentationTime(decoderOutputBufferInfo.presentationTimeUs * 1000);
-						inputSurface.swapBuffers();
+					pendingDecoderOutputBufferIndex = decoderOutputBufferIndex;
+					break;
+				}
+
+				while (pendingDecoderOutputBufferIndex != -1) {
+					final int encoderInputBufferIndex = encoder
+							.dequeueInputBuffer(TIMEOUT_USEC);
+					if (encoderInputBufferIndex < 0) {
+						break;
 					}
+					final ByteBuffer encoderInputBuffer = encoderInputBuffers[encoderInputBufferIndex];
+					final ByteBuffer decoderOutputBuffer = decoderOutputBuffers[pendingDecoderOutputBufferIndex]
+							.duplicate();
+
+					decoderOutputBuffer
+							.position(decoderOutputBufferInfo.offset);
+					decoderOutputBuffer.limit(decoderOutputBufferInfo.offset
+							+ decoderOutputBufferInfo.size);
+					encoderInputBuffer.position(0);
+					encoderInputBuffer.put(decoderOutputBuffer);
+
+					encoder.queueInputBuffer(encoderInputBufferIndex, 0,
+							decoderOutputBufferInfo.size,
+							decoderOutputBufferInfo.presentationTimeUs,
+							decoderOutputBufferInfo.flags);
+					decoder.releaseOutputBuffer(
+							pendingDecoderOutputBufferIndex, false);
+					
+					pendingDecoderOutputBufferIndex = -1;
 					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-						Log.d(LOG_TAG, "video decoder: EOS");
+						Log.d(LOG_TAG, "audio decoder: EOS");
 						decoderDone = true;
-						encoder.signalEndOfInputStream();
 					}
 					break;
 				}
@@ -324,13 +303,22 @@ public class VideoShrink {
 					final int encoderOutputBufferIndex = encoder
 							.dequeueOutputBuffer(encoderOutputBufferInfo,
 									TIMEOUT_USEC);
+
 					if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
-						Log.d(LOG_TAG, "video encoder: output buffers changed");
+						Log.d(LOG_TAG, "audio encoder: output buffers changed");
 						encoderOutputBuffers = encoder.getOutputBuffers();
 						break;
 					}
 					if (encoderOutputBufferIndex < 0) {
 						break;
+					}
+
+					if (VERBOSE) {
+						Log.v(LOG_TAG, "audio encoder output. time:"
+								+ encoderOutputBufferInfo.presentationTimeUs
+								+ ", offset:" + encoderOutputBufferInfo.offset
+								+ ", size:" + encoderOutputBufferInfo.size
+								+ ", flag:" + encoderOutputBufferInfo.flags);
 					}
 
 					final ByteBuffer encoderOutputBuffer = encoderOutputBuffers[encoderOutputBufferIndex];
@@ -339,12 +327,13 @@ public class VideoShrink {
 								false);
 						break;
 					}
+
 					if (encoderOutputBufferInfo.size != 0) {
 						muxer.writeSampleData(trackIndex, encoderOutputBuffer,
 								encoderOutputBufferInfo);
 					}
 					if ((encoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-						Log.d(LOG_TAG, "video encoder: EOS");
+						Log.d(LOG_TAG, "audio encoder: EOS");
 						encoderDone = true;
 					}
 					encoder.releaseOutputBuffer(encoderOutputBufferIndex, false);
@@ -355,21 +344,19 @@ public class VideoShrink {
 		} finally {
 			encoder.stop();
 			encoder.release();
-			inputSurface.release();
 			decoder.stop();
 			decoder.release();
-			outputSurface.release();
 
 			extractor.unselectTrack(trackIndex);
 		}
 	}
 
-	private MediaCodec createDecoder(final MediaFormat format,
-			final Surface surface) {
+	private MediaCodec createDecoder(final MediaFormat format) {
 		final MediaCodec decoder = MediaCodec.createDecoderByType(format
 				.getString(MediaFormat.KEY_MIME));
-		decoder.configure(format, surface, null, 0);
+		decoder.configure(format, null, null, 0);
 
+		Log.d(LOG_TAG, "audio decoder:" + decoder.getName());
 		return decoder;
 	}
 
@@ -377,6 +364,8 @@ public class VideoShrink {
 		final MediaCodec encoder = MediaCodec.createByCodecName(Utils
 				.selectCodec(CODEC, true).getName());
 		encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+		Log.d(LOG_TAG, "audio encoder:" + encoder.getName());
 		return encoder;
 	}
+
 }

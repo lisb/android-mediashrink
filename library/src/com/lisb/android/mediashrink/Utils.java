@@ -49,6 +49,24 @@ public class Utils {
 		}
 	}
 	
+	public static String toString(final CodecProfileLevel[] profileLevels) {
+		final StringBuilder builder = new StringBuilder();
+		builder.append('[');
+		for (final CodecProfileLevel profileLevel : profileLevels) {
+			if (builder.length() > 1) {
+				builder.append(", ");
+			}
+			builder.append('{');
+			builder.append("profile:");
+			builder.append(profileLevel.profile);
+			builder.append(",level:");
+			builder.append(profileLevel.level);
+			builder.append('}');
+		}
+		builder.append(']');
+		return builder.toString();
+	}
+	
 	public static void closeSilently(final Closeable c) {
 		if (c == null) {
 			return;
@@ -69,4 +87,25 @@ public class Utils {
 		codec.release();
 	}
 
+	/**
+	 * Returns the first codec capable of encoding the specified MIME type, or
+	 * null if no match was found.
+	 */
+	public static MediaCodecInfo selectCodec(String mimeType, boolean encoder) {
+		for (int i = 0, numCodecs = MediaCodecList.getCodecCount(); i < numCodecs; i++) {
+			final MediaCodecInfo codecInfo = MediaCodecList.getCodecInfoAt(i);
+
+			if (codecInfo.isEncoder() != encoder) {
+				continue;
+			}
+
+			final String[] types = codecInfo.getSupportedTypes();
+			for (int j = 0; j < types.length; j++) {
+				if (types[j].equalsIgnoreCase(mimeType)) {
+					return codecInfo;
+				}
+			}
+		}
+		return null;
+	}
 }

@@ -23,18 +23,17 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.lisb.android.mediashrink.MediaShrink;
-import com.lisb.android.mediashrink.example.R;
 import com.lisb.android.mediashrink.example.R.id;
 import com.lisb.android.mediashrink.example.R.layout;
-import com.lisb.android.mediashrink.example.R.menu;
 
 public class ExampleActivity extends Activity implements OnClickListener {
 
 	private static final String LOG_TAG = ExampleActivity.class.getSimpleName();
 
-	private static final int MAX_WIDTH = 320;
-	private static final int MAX_HEIGHT = 320;
-	private static final long MAX_SIZE = 1024 * 1024 * 10;
+	private static final int MAX_WIDTH = 480;
+	private static final int MAX_HEIGHT = 480;
+	private static final int VIDEO_BITRATE = 500 * 1024;
+	private static final int AUDIO_BITRATE = 128 * 1024;
 	
 	private static final String EXPORT_DIR = "exports";
 	private static final String EXPORT_FILE = "video.mp4";
@@ -138,7 +137,6 @@ public class ExampleActivity extends Activity implements OnClickListener {
 		}
 		case id.capture_video: {
 			final Intent intent = new Intent(MediaStore.ACTION_VIDEO_CAPTURE);
-			intent.putExtra(MediaStore.EXTRA_SIZE_LIMIT, 10L * 1024 * 1024);
 			intent.putExtra(MediaStore.EXTRA_DURATION_LIMIT, 90);
 			intent.putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 1);
 			if (intent.resolveActivity(getPackageManager()) != null) {
@@ -193,7 +191,8 @@ public class ExampleActivity extends Activity implements OnClickListener {
 				shrink.setOutput(getOutput().getAbsolutePath());
 				shrink.setMaxWidth(MAX_WIDTH);
 				shrink.setMaxHeight(MAX_HEIGHT);
-				shrink.setMaxSize(MAX_SIZE);
+				shrink.setVideoBitRate(VIDEO_BITRATE);
+				shrink.setAudioBitRate(AUDIO_BITRATE);
 				try {
 					shrink.shrink(selectedVideoPath);
 					return null;

@@ -17,13 +17,13 @@ import android.util.Log;
 public class MediaShrink {
 
 	private static final String LOG_TAG = MediaShrink.class.getSimpleName();
-
 	private final Context context;
 
 	private int maxWidth = -1;
 	private int maxHeight = -1;
 	private long maxLength = -1;
-	private long maxSize = 0;
+	private int audioBitRate;
+	private int videoBitRate;
 	private String output;
 
 	public static MediaShrink createMediaShrink(final Context context) {
@@ -48,6 +48,11 @@ public class MediaShrink {
 		MediaMetadataRetriever metadataRetriever = null;
 		MediaMuxer muxer = null;
 		VideoShrink videoShrink = null;
+		AudioShrink audioShrink = null;
+
+		// デコード・エンコードで発生した RuntimeException が
+		// 終了処理中の RuntimeException に上書きされないように保存する。
+		RuntimeException re = null;
 
 		try {
 			extractor = new MediaExtractor();
@@ -85,10 +90,15 @@ public class MediaShrink {
 								metadataRetriever, muxer);
 						videoShrink.setMaxWidth(maxWidth);
 						videoShrink.setMaxHeight(maxHeight);
-						videoShrink.setMaxSize(maxSize); // TODO
-															// audio分のサイズを差し引く。
+						videoShrink.setBitRate(videoBitRate);
 					}
 					muxer.addTrack(videoShrink.createOutputFormat(i));
+				} else if (isAudioFormat(format)) {
+					if (audioShrink == null) {
+						audioShrink = new AudioShrink(extractor, muxer);
+						audioShrink.setBitRate(audioBitRate);
+					}
+					muxer.addTrack(audioShrink.createOutputFormat(i));
 				} else {
 					muxer.addTrack(format);
 				}
@@ -101,31 +111,44 @@ public class MediaShrink {
 				final MediaFormat format = extractor.getTrackFormat(i);
 				if (isVideoFormat(format)) {
 					videoShrink.shrink(i);
+				} else if (isAudioFormat(format)) {
+					audioShrink.shrink(i);
 				} else {
 					copyTrack(extractor, muxer, i);
 				}
 			}
-
+		} catch (RuntimeException e) {
+			re = e;
 		} finally {
-			if (extractor != null) {
-				extractor.release();
-			}
+			try {
+				if (extractor != null) {
+					extractor.release();
+				}
 
-			if (metadataRetriever != null) {
-				metadataRetriever.release();
-			}
+				if (metadataRetriever != null) {
+					metadataRetriever.release();
+				}
 
-			if (muxer != null) {
-				muxer.stop();
-				muxer.release();
+				if (muxer != null) {
+					muxer.stop();
+					muxer.release();
+				}
+			} catch (RuntimeException e) {
+				if (re == null) {
+					re = e;
+				}
 			}
+		}
+
+		if (re != null) {
+			throw re;
 		}
 	}
 
 	private void copyTrack(final MediaExtractor extractor,
 			final MediaMuxer muxer, final int trackIndex) {
-		final ByteBuffer byteBuf = ByteBuffer.allocate(1000 * 1000); // TODO
-																		// バッファのサイズを調整
+		// TODO バッファのサイズを調整
+		final ByteBuffer byteBuf = ByteBuffer.allocate(1024 * 1024);
 		final BufferInfo bufInfo = new BufferInfo();
 
 		extractor.selectTrack(trackIndex);
@@ -144,17 +167,16 @@ public class MediaShrink {
 		bufInfo.presentationTimeUs = 0;
 		bufInfo.size = 0;
 		muxer.writeSampleData(trackIndex, byteBuf, bufInfo);
+
+		extractor.unselectTrack(trackIndex);
 	}
 
 	private boolean isVideoFormat(MediaFormat format) {
 		return format.getString(MediaFormat.KEY_MIME).startsWith("video/");
 	}
 
-	/**
-	 * このサイズを超えないように縮小をかける。 (設定必須)
-	 */
-	public void setMaxSize(long maxSize) {
-		this.maxSize = maxSize;
+	private boolean isAudioFormat(MediaFormat format) {
+		return format.getString(MediaFormat.KEY_MIME).startsWith("audio/");
 	}
 
 	/**
@@ -162,6 +184,20 @@ public class MediaShrink {
 	 */
 	public void setOutput(String output) {
 		this.output = output;
+	}
+
+	/**
+	 * 設定必須
+	 */
+	public void setVideoBitRate(int videoBitRate) {
+		this.videoBitRate = videoBitRate;
+	}
+
+	/**
+	 * 設定必須
+	 */
+	public void setAudioBitRate(int audioBitRate) {
+		this.audioBitRate = audioBitRate;
 	}
 
 	/**
