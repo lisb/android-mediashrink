@@ -26,12 +26,20 @@ public class MediaShrink {
 	private int videoBitRate;
 	private String output;
 
-	public static MediaShrink createMediaShrink(final Context context) {
+	public static boolean isSupportedDevice(final Context context) {
 		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR2) {
-			return null;
+			return false;
 		}
 
 		if (!OpenglUtils.supportsOpenglEs2(context)) {
+			return false;
+		}
+		
+		return true;
+	}
+	
+	public static MediaShrink createMediaShrink(final Context context) {
+		if (!isSupportedDevice(context)) {
 			return null;
 		}
 
