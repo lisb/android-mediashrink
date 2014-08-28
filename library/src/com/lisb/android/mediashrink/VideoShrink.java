@@ -14,6 +14,7 @@ import android.view.Surface;
 public class VideoShrink {
 
 	private static final String LOG_TAG = VideoShrink.class.getSimpleName();
+	private static final boolean VERBOSE = true;
 
 	private static final String CODEC = "video/avc";
 	private static final long TIMEOUT_USEC = 250;
@@ -173,6 +174,16 @@ public class VideoShrink {
 					final ByteBuffer decoderInputBuffer = decoderInputBuffers[decoderInputBufferIndex];
 					final int size = extractor.readSampleData(
 							decoderInputBuffer, 0);
+
+					if (VERBOSE) {
+						Log.v(LOG_TAG,
+								"video extractor output. size:" + size
+										+ ", sample time:"
+										+ extractor.getSampleTime()
+										+ ", sample flags:"
+										+ extractor.getSampleFlags());
+					}
+
 					if (size >= 0) {
 						decoder.queueInputBuffer(decoderInputBufferIndex, 0,
 								size, extractor.getSampleTime(),
@@ -190,9 +201,24 @@ public class VideoShrink {
 				while (!decoderDone) {
 					int decoderOutputBufferIndex = decoder.dequeueOutputBuffer(
 							decoderOutputBufferInfo, TIMEOUT_USEC);
+
+					if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+						Log.d(LOG_TAG, "video decoder: output format changed. "
+								+ decoder.getOutputFormat());
+					}
+
 					if (decoderOutputBufferIndex < 0) {
 						break;
 					}
+
+					if (VERBOSE) {
+						Log.v(LOG_TAG, "video decoder output. time:"
+								+ decoderOutputBufferInfo.presentationTimeUs
+								+ ", offset:" + decoderOutputBufferInfo.offset
+								+ ", size:" + decoderOutputBufferInfo.size
+								+ ", flag:" + decoderOutputBufferInfo.flags);
+					}
+
 					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
 						decoder.releaseOutputBuffer(decoderOutputBufferIndex,
 								false);
@@ -226,7 +252,7 @@ public class VideoShrink {
 					}
 					if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
 						outputFormat = encoder.getOutputFormat();
-						Log.d(LOG_TAG, "create new video format:"
+						Log.d(LOG_TAG, "video encoder: output format changed. "
 								+ outputFormat);
 						if (forFormat) {
 							return outputFormat;
@@ -245,6 +271,15 @@ public class VideoShrink {
 					}
 
 					final ByteBuffer encoderOutputBuffer = encoderOutputBuffers[encoderOutputBufferIndex];
+
+					if (VERBOSE) {
+						Log.v(LOG_TAG, "video encoder output. time:"
+								+ encoderOutputBufferInfo.presentationTimeUs
+								+ ", offset:" + encoderOutputBufferInfo.offset
+								+ ", size:" + encoderOutputBufferInfo.size
+								+ ", flag:" + encoderOutputBufferInfo.flags);
+					}
+
 					if ((encoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
 						encoder.releaseOutputBuffer(encoderOutputBufferIndex,
 								false);
@@ -290,6 +325,7 @@ public class VideoShrink {
 				.getString(MediaFormat.KEY_MIME));
 		decoder.configure(format, surface, null, 0);
 
+		Log.d(LOG_TAG, "video decoder:" + decoder.getName());
 		return decoder;
 	}
 
@@ -297,6 +333,8 @@ public class VideoShrink {
 		final MediaCodec encoder = MediaCodec.createByCodecName(Utils
 				.selectCodec(CODEC, true).getName());
 		encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+
+		Log.d(LOG_TAG, "video encoder:" + encoder.getName());
 		return encoder;
 	}
 }
