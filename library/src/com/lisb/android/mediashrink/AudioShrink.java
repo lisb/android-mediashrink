@@ -16,7 +16,7 @@ public class AudioShrink {
 
 	private static final long TIMEOUT_USEC = 250;
 	private static final String CODEC = "audio/mp4a-latm";
-	private static final int AAC_PROFILE = MediaCodecInfo.CodecProfileLevel.AACObjectLC;
+	private static final int AAC_PROFILE = MediaCodecInfo.CodecProfileLevel.AACObjectHE;
 	private int bitRate;
 
 	private final MediaExtractor extractor;
