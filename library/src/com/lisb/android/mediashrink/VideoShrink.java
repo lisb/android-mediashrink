@@ -134,117 +134,11 @@ public class VideoShrink {
 		}
 	}
 
-	public MediaFormat createOutputFormat(final int trackIndex) {
+	private MediaFormat reencode(final int trackIndex, final boolean forFormat) {
 		final MediaFormat currentFormat = extractor.getTrackFormat(trackIndex);
-		final MediaFormat newFormat = createEncoderConfigurationFormat(currentFormat);
+		final MediaFormat encoderConfigurationFormat = createEncoderConfigurationFormat(currentFormat);
 
-		final MediaCodec encoder = createEncoder(newFormat);
-		Log.d(LOG_TAG,
-				"encoder codec profile: "
-						+ Utils.toString(encoder.getCodecInfo()
-								.getCapabilitiesForType(CODEC).profileLevels));
-		final InputSurface inputSurface = new InputSurface(
-				encoder.createInputSurface());
-		inputSurface.makeCurrent();
-		encoder.start();
-
-		final OutputSurface outputSurface = new OutputSurface(-rotation);
-		final MediaCodec decoder = createDecoder(currentFormat,
-				outputSurface.getSurface());
-		decoder.start();
-
-		try {
-			extractor.selectTrack(trackIndex);
-
-			final ByteBuffer[] decoderInputBuffers = decoder.getInputBuffers();
-			final MediaCodec.BufferInfo decoderOutputBufferInfo = new MediaCodec.BufferInfo();
-			final MediaCodec.BufferInfo encoderOutputBufferInfo = new MediaCodec.BufferInfo();
-
-			boolean extractorDone = false;
-			boolean decoderDone = false;
-
-			while (true) {
-				while (!extractorDone) {
-					final int decoderInputBufferIndex = decoder
-							.dequeueInputBuffer(TIMEOUT_USEC);
-					if (decoderInputBufferIndex < 0) {
-						break;
-					}
-					final ByteBuffer decoderInputBuffer = decoderInputBuffers[decoderInputBufferIndex];
-					final int size = extractor.readSampleData(
-							decoderInputBuffer, 0);
-					if (size >= 0) {
-						decoder.queueInputBuffer(decoderInputBufferIndex, 0,
-								size, extractor.getSampleTime(),
-								extractor.getSampleFlags());
-					}
-					extractorDone = !extractor.advance();
-					if (extractorDone) {
-						Log.d(LOG_TAG, "video extractor: EOS");
-						decoder.queueInputBuffer(decoderInputBufferIndex, 0, 0,
-								0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-					}
-					break;
-				}
-
-				while (!decoderDone) {
-					int decoderOutputBufferIndex = decoder.dequeueOutputBuffer(
-							decoderOutputBufferInfo, TIMEOUT_USEC);
-					if (decoderOutputBufferIndex < 0) {
-						break;
-					}
-					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
-						decoder.releaseOutputBuffer(decoderOutputBufferIndex,
-								false);
-						break;
-					}
-					final boolean render = decoderOutputBufferInfo.size != 0;
-					decoder.releaseOutputBuffer(decoderOutputBufferIndex,
-							render);
-					if (render) {
-						outputSurface.drawNewImage();
-						inputSurface
-								.setPresentationTime(decoderOutputBufferInfo.presentationTimeUs * 1000);
-						inputSurface.swapBuffers();
-					}
-					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-						Log.d(LOG_TAG, "video decoder: EOS");
-						decoderDone = true;
-						encoder.signalEndOfInputStream();
-					}
-					break;
-				}
-
-				final int encoderOutputBufferIndex = encoder
-						.dequeueOutputBuffer(encoderOutputBufferInfo,
-								TIMEOUT_USEC);
-				if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-					Log.d(LOG_TAG,
-							"create new format:" + encoder.getOutputFormat());
-					return encoder.getOutputFormat();
-				}
-
-				if (encoderOutputBufferIndex >= 0) {
-					throw new RuntimeException("Can't craete new format.");
-				}
-			}
-		} finally {
-			encoder.stop();
-			encoder.release();
-			inputSurface.release();
-			decoder.stop();
-			decoder.release();
-			outputSurface.release();
-
-			extractor.unselectTrack(trackIndex);
-		}
-	}
-
-	public void shrink(final int trackIndex) {
-		final MediaFormat currentFormat = extractor.getTrackFormat(trackIndex);
-		final MediaFormat newFormat = createEncoderConfigurationFormat(currentFormat);
-
-		final MediaCodec encoder = createEncoder(newFormat);
+		final MediaCodec encoder = createEncoder(encoderConfigurationFormat);
 		final InputSurface inputSurface = new InputSurface(
 				encoder.createInputSurface());
 		inputSurface.makeCurrent();
@@ -264,6 +158,7 @@ public class VideoShrink {
 			ByteBuffer[] encoderOutputBuffers = encoder.getOutputBuffers();
 			final MediaCodec.BufferInfo encoderOutputBufferInfo = new MediaCodec.BufferInfo();
 
+			MediaFormat outputFormat = null;
 			boolean extractorDone = false;
 			boolean decoderDone = false;
 			boolean encoderDone = false;
@@ -329,8 +224,24 @@ public class VideoShrink {
 						encoderOutputBuffers = encoder.getOutputBuffers();
 						break;
 					}
+					if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+						outputFormat = encoder.getOutputFormat();
+						Log.d(LOG_TAG, "create new video format:"
+								+ outputFormat);
+						if (forFormat) {
+							return outputFormat;
+						}
+						break;
+					}
+
 					if (encoderOutputBufferIndex < 0) {
 						break;
+					}
+
+					if (outputFormat == null) {
+						Log.e(LOG_TAG, "Can't create new video format.");
+						throw new RuntimeException(
+								"Can't create new video format.");
 					}
 
 					final ByteBuffer encoderOutputBuffer = encoderOutputBuffers[encoderOutputBufferIndex];
@@ -352,6 +263,7 @@ public class VideoShrink {
 				}
 			}
 
+			return outputFormat;
 		} finally {
 			encoder.stop();
 			encoder.release();
@@ -362,6 +274,14 @@ public class VideoShrink {
 
 			extractor.unselectTrack(trackIndex);
 		}
+	}
+
+	public MediaFormat createOutputFormat(final int trackIndex) {
+		return reencode(trackIndex, true);
+	}
+
+	public void shrink(final int trackIndex) {
+		reencode(trackIndex, false);
 	}
 
 	private MediaCodec createDecoder(final MediaFormat format,
