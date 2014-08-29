@@ -2,24 +2,26 @@ package com.lisb.android.mediashrink;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
-import android.media.MediaCodecList;
 import android.media.MediaCodecInfo.CodecCapabilities;
 import android.media.MediaCodecInfo.CodecProfileLevel;
+import android.media.MediaCodecList;
+import android.media.MediaFormat;
 import android.util.Log;
 
 public class Utils {
 
 	private static final String LOG_TAG = Utils.class.getSimpleName();
 
-	public static void printCodecCapabilities() {
+	public static void printCodecCapabilities(boolean encoder) {
 		Log.v(LOG_TAG, "print codec capablities.");
 		for (int i = 0, size = MediaCodecList.getCodecCount(); i < size; i++) {
 			final MediaCodecInfo info = MediaCodecList.getCodecInfoAt(i);
-			if (info.isEncoder()) {
+			if (info.isEncoder() == encoder) {
 				Log.v(LOG_TAG, "  MediaCodecInfo:" + info.getName());
 				for (final String type : info.getSupportedTypes()) {
 					final CodecCapabilities capabilities = info
@@ -48,7 +50,7 @@ public class Utils {
 			}
 		}
 	}
-	
+
 	public static String toString(final CodecProfileLevel[] profileLevels) {
 		final StringBuilder builder = new StringBuilder();
 		builder.append('[');
@@ -66,23 +68,39 @@ public class Utils {
 		builder.append(']');
 		return builder.toString();
 	}
-	
+
+	public static String toString(final MediaFormat format) {
+		final StringBuilder csdStringBuilder = new StringBuilder();
+		int csdIndex = 0;
+		String csdKey = "csd-" + csdIndex;
+		while (format.containsKey(csdKey)) {
+			final ByteBuffer buf = format.getByteBuffer(csdKey);
+			csdStringBuilder.append(", ");
+			csdStringBuilder.append(csdKey);
+			csdStringBuilder.append(':');
+			csdStringBuilder.append(Arrays.toString(buf.array()));
+			csdIndex++;
+			csdKey = "csd-" + csdIndex;
+		}
+		return format.toString() + csdStringBuilder.toString();
+	}
+
 	public static void closeSilently(final Closeable c) {
 		if (c == null) {
 			return;
 		}
-		
+
 		try {
 			c.close();
 		} catch (IOException e) {
 		}
 	}
-	
+
 	public static void closeSilently(final MediaCodec codec) {
 		if (codec == null) {
 			return;
 		}
-		
+
 		codec.stop();
 		codec.release();
 	}

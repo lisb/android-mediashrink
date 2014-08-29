@@ -51,7 +51,6 @@ public class MediaShrink {
 	}
 
 	public void shrink(final Uri input) throws IOException {
-
 		MediaExtractor extractor = null;
 		MediaMetadataRetriever metadataRetriever = null;
 		MediaMuxer muxer = null;
@@ -91,7 +90,7 @@ public class MediaShrink {
 			// トラックの作成。
 			for (int i = 0, length = extractor.getTrackCount(); i < length; i++) {
 				final MediaFormat format = extractor.getTrackFormat(i);
-				Log.d(LOG_TAG, "track [" + i + "] format: " + format);
+				Log.d(LOG_TAG, "track [" + i + "] format: " + Utils.toString(format));
 				if (isVideoFormat(format)) {
 					if (videoShrink == null) {
 						videoShrink = new VideoShrink(extractor,
@@ -126,6 +125,7 @@ public class MediaShrink {
 				}
 			}
 		} catch (RuntimeException e) {
+			Log.e(LOG_TAG, "fail to shrink.", e);
 			re = e;
 		} finally {
 			try {
@@ -142,6 +142,7 @@ public class MediaShrink {
 					muxer.release();
 				}
 			} catch (RuntimeException e) {
+				Log.e(LOG_TAG, "fail to finalize shrink.", e);
 				if (re == null) {
 					re = e;
 				}
