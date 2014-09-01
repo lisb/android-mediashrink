@@ -96,7 +96,7 @@ public class MediaShrink {
 						videoShrink = new VideoShrink(extractor,
 								metadataRetriever, muxer);
 						videoShrink.setMaxWidth(maxWidth);
-						videoShrink.setMaxHeight(maxHeight);
+//						videoShrink.setMaxHeight(maxHeight);
 						videoShrink.setBitRate(videoBitRate);
 					}
 					muxer.addTrack(videoShrink.createOutputFormat(i));
@@ -210,6 +210,9 @@ public class MediaShrink {
 	}
 
 	/**
+	 * Warning: Nexus 7 では決まった幅(640, 384など)でないとエンコード結果がおかしくなる。
+	 * セットした値で正しくエンコードできるかテストすること。
+	 * 
 	 * @param maxWidth
 	 *            0以下の時、無視される。
 	 */
@@ -217,13 +220,14 @@ public class MediaShrink {
 		this.maxWidth = maxWidth;
 	}
 
-	/**
-	 * @param maxHeight
-	 *            0以下の時、無視される
+	/*
+	 * Nexus 7(2013) ではある幅以外だとエンコード結果がおかしくなるので
+	 * 幅を固定して使うことになる。
+	 * 幅を固定する以外のうまい方法が見つかるまではこのメソッドの使用不可にする。
 	 */
-	public void setMaxHeight(int maxHeight) {
-		this.maxHeight = maxHeight;
-	}
+//	public void setMaxHeight(int maxHeight) {
+//		this.maxHeight = maxHeight;
+//	}
 
 	/**
 	 * ビデオの最大の長さ。 この長さを越えるビデオのエンコードは行わない。

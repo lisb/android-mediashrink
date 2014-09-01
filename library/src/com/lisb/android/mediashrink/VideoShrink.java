@@ -48,6 +48,13 @@ public class VideoShrink {
 						.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION));
 	}
 
+	/**
+	 * Warning: Nexus 7 では決まった幅(640, 384など)でないとエンコード結果がおかしくなる。
+	 * セットした値で正しくエンコードできるかテストすること。
+	 * 
+	 * @param maxWidth
+	 *            0以下の時、無視される。
+	 */
 	public void setMaxWidth(int maxWidth) {
 		if (maxWidth > 0 && maxWidth % 16 > 0) {
 			throw new IllegalArgumentException(
@@ -56,13 +63,21 @@ public class VideoShrink {
 		this.maxWidth = maxWidth;
 	}
 
-	public void setMaxHeight(int maxHeight) {
-		if (maxHeight > 0 && maxHeight % 16 > 0) {
-			throw new IllegalArgumentException(
-					"Only multiples of 16 is supported.");
-		}
-		this.maxHeight = maxHeight;
-	}
+	/*
+	 * Nexus 7(2013) ではある幅以外だとエンコード結果がおかしくなるので
+	 * 幅を固定して使うことになる。
+	 * 幅を固定する以外のうまい方法が見つかるまではこのメソッドの使用不可にする。
+	 * 
+	 * @param maxHeight
+	 *            0以下の時、無視される
+	 */
+//	public void setMaxHeight(int maxHeight) {
+//		if (maxHeight > 0 && maxHeight % 16 > 0) {
+//			throw new IllegalArgumentException(
+//					"Only multiples of 16 is supported.");
+//		}
+//		this.maxHeight = maxHeight;
+//	}
 
 	public void setBitRate(int bitRate) {
 		this.bitRate = bitRate;

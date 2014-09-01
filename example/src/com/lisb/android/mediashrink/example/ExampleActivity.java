@@ -30,8 +30,7 @@ public class ExampleActivity extends Activity implements OnClickListener {
 
 	private static final String LOG_TAG = ExampleActivity.class.getSimpleName();
 
-	private static final int MAX_WIDTH = 480;
-	private static final int MAX_HEIGHT = 480;
+	private static final int MAX_WIDTH = 384;
 	private static final int VIDEO_BITRATE = 500 * 1024;
 	private static final int AUDIO_BITRATE = 128 * 1024;
 	
@@ -190,7 +189,6 @@ public class ExampleActivity extends Activity implements OnClickListener {
 				getOutput().getParentFile().mkdirs();
 				shrink.setOutput(getOutput().getAbsolutePath());
 				shrink.setMaxWidth(MAX_WIDTH);
-				shrink.setMaxHeight(MAX_HEIGHT);
 				shrink.setVideoBitRate(VIDEO_BITRATE);
 				shrink.setAudioBitRate(AUDIO_BITRATE);
 				try {
