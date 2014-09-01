@@ -123,7 +123,7 @@ class OutputSurface implements SurfaceTexture.OnFrameAvailableListener {
      * the OutputSurface object, after the onFrameAvailable callback has signaled that new
      * data is available.
      */
-    public void drawNewImage() {
+    public void drawNewImage(SnapshotOptions snapshotOptions) {
         synchronized (mFrameSyncObject) {
             while (!mFrameAvailable) {
                 try {
@@ -139,9 +139,9 @@ class OutputSurface implements SurfaceTexture.OnFrameAvailableListener {
         // Latch the data.
         mTextureRender.checkGlError("before updateTexImage");
         mSurfaceTexture.updateTexImage();
-        mTextureRender.drawFrame(mSurfaceTexture);
+        mTextureRender.drawFrame(mSurfaceTexture, snapshotOptions);
     }
-
+    
     @Override
     public void onFrameAvailable(SurfaceTexture st) {
         if (VERBOSE) Log.d(TAG, "new frame available");

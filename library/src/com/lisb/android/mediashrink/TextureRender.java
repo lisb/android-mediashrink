@@ -16,11 +16,15 @@
 
 package com.lisb.android.mediashrink;
 
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 
+import android.graphics.Bitmap;
 import android.graphics.SurfaceTexture;
+import android.graphics.Bitmap.CompressFormat;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
 import android.opengl.Matrix;
@@ -78,7 +82,7 @@ class TextureRender {
     private int muSTMatrixHandle;
     private int maPositionHandle;
     private int maTextureHandle;
-
+    
     public TextureRender(float rotation) {
     	this.mRotation = rotation;
     	
@@ -94,7 +98,7 @@ class TextureRender {
         return mTextureID;
     }
 
-    public void drawFrame(SurfaceTexture st) {
+    public void drawFrame(SurfaceTexture st, SnapshotOptions snapshotOptions) {
         checkGlError("onDrawFrame start");
         st.getTransformMatrix(mSTMatrix);
 
@@ -128,6 +132,41 @@ class TextureRender {
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
         checkGlError("glDrawArrays");
+        
+        if (snapshotOptions != null) {
+			final ByteBuffer pixelBuf = ByteBuffer
+					.allocateDirect(snapshotOptions.width
+							* snapshotOptions.height * 4);
+			pixelBuf.order(ByteOrder.LITTLE_ENDIAN);
+			GLES20.glReadPixels(0, 0, snapshotOptions.width,
+					snapshotOptions.height, GLES20.GL_RGBA,
+					GLES20.GL_UNSIGNED_BYTE, pixelBuf);
+			
+			final Bitmap snapshotBase = Bitmap.createBitmap(snapshotOptions.width,
+					snapshotOptions.height, Bitmap.Config.ARGB_8888);
+			snapshotBase.copyPixelsFromBuffer(pixelBuf);
+
+			// OpenGL と bitmap は y 座標の方向が真逆なので反転する
+			final android.graphics.Matrix m = new android.graphics.Matrix();
+			m.postScale(1, -1);
+			final Bitmap snapshot = Bitmap.createBitmap(snapshotBase, 0, 0, snapshotOptions.width,
+					snapshotOptions.height, m, true);
+			snapshotBase.recycle();
+			
+			FileOutputStream out = null;
+			try {
+				out = new FileOutputStream(snapshotOptions.file);
+				snapshot.compress(CompressFormat.JPEG, 80, out);
+			} catch (FileNotFoundException e) {
+				Log.e(TAG, "fail to create snapshot file. file:"
+						+ snapshotOptions.file, e);
+			} finally {
+				Utils.closeSilently(out);
+			}
+			
+			snapshot.recycle();
+        }
+        
         GLES20.glFinish();
     }
 

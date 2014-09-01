@@ -1,5 +1,6 @@
 package com.lisb.android.mediashrink;
 
+import java.io.File;
 import java.nio.ByteBuffer;
 
 import android.media.MediaCodec;
@@ -8,18 +9,24 @@ import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaMuxer;
+import android.os.Environment;
 import android.util.Log;
 import android.view.Surface;
 
 public class VideoShrink {
 
 	private static final String LOG_TAG = VideoShrink.class.getSimpleName();
-	private static final boolean VERBOSE = true;
-
+	private static final boolean VERBOSE = false;
+	private static final boolean DEBUG = false; // デバッグ用にスナップショットを出力する
+	
 	private static final String CODEC = "video/avc";
 	private static final long TIMEOUT_USEC = 250;
 	private static final int I_FRAME_INTERVAL = 5;
 	private static final float FRAMERATE = 30f;
+
+	private static final String SNAPSHOT_FILE_PREFIX = "android-videoshrink-snapshot";
+	private static final String SNAPSHOT_FILE_EXTENSION = "jpg";
+	private static final int NUMBER_OF_SNAPSHOT = 10;
 
 	private final MediaExtractor extractor;
 	private final MediaMetadataRetriever metadataRetriever;
@@ -134,7 +141,7 @@ public class VideoShrink {
 			return round + 16 - rem;
 		}
 	}
-
+	
 	private MediaFormat reencode(final int trackIndex, final boolean forFormat) {
 		final MediaFormat currentFormat = extractor.getTrackFormat(trackIndex);
 		final MediaFormat encoderConfigurationFormat = createEncoderConfigurationFormat(currentFormat);
@@ -150,19 +157,35 @@ public class VideoShrink {
 				outputSurface.getSurface());
 		decoder.start();
 
+		final ByteBuffer[] decoderInputBuffers = decoder.getInputBuffers();
+		final MediaCodec.BufferInfo decoderOutputBufferInfo = new MediaCodec.BufferInfo();
+
+		ByteBuffer[] encoderOutputBuffers = encoder.getOutputBuffers();
+		final MediaCodec.BufferInfo encoderOutputBufferInfo = new MediaCodec.BufferInfo();
+
+		MediaFormat outputFormat = null;
+		boolean extractorDone = false;
+		boolean decoderDone = false;
+		boolean encoderDone = false;
+
+		final SnapshotOptions snapshotOptions;
+		final long snapshotDuration;
+		int snapshotIndex = 0;
+		if (DEBUG) {
+			snapshotOptions = new SnapshotOptions();
+			snapshotOptions.width = encoderConfigurationFormat
+					.getInteger(MediaFormat.KEY_WIDTH);
+			snapshotOptions.height = encoderConfigurationFormat
+					.getInteger(MediaFormat.KEY_HEIGHT);
+			snapshotDuration = currentFormat
+					.getLong(MediaFormat.KEY_DURATION) / NUMBER_OF_SNAPSHOT;
+		} else {
+			snapshotOptions = null;
+			snapshotDuration = 0;
+		}
+		
 		try {
 			extractor.selectTrack(trackIndex);
-
-			final ByteBuffer[] decoderInputBuffers = decoder.getInputBuffers();
-			final MediaCodec.BufferInfo decoderOutputBufferInfo = new MediaCodec.BufferInfo();
-
-			ByteBuffer[] encoderOutputBuffers = encoder.getOutputBuffers();
-			final MediaCodec.BufferInfo encoderOutputBufferInfo = new MediaCodec.BufferInfo();
-
-			MediaFormat outputFormat = null;
-			boolean extractorDone = false;
-			boolean decoderDone = false;
-			boolean encoderDone = false;
 
 			while (!encoderDone) {
 				while (!extractorDone) {
@@ -228,7 +251,17 @@ public class VideoShrink {
 					decoder.releaseOutputBuffer(decoderOutputBufferIndex,
 							render);
 					if (render) {
-						outputSurface.drawNewImage();
+						if (DEBUG
+								&& snapshotIndex * snapshotDuration <= decoderOutputBufferInfo.presentationTimeUs) {
+							snapshotOptions.file = getSnapshotFile(
+									snapshotIndex,
+									decoderOutputBufferInfo.presentationTimeUs);
+							outputSurface.drawNewImage(snapshotOptions);
+							snapshotIndex++;
+						} else {
+							outputSurface.drawNewImage(null);
+						}
+						
 						inputSurface
 								.setPresentationTime(decoderOutputBufferInfo.presentationTimeUs * 1000);
 						inputSurface.swapBuffers();
@@ -309,6 +342,12 @@ public class VideoShrink {
 
 			extractor.unselectTrack(trackIndex);
 		}
+	}
+	
+	private File getSnapshotFile(int snapshotIndex, long presentationTimeUs) {
+		return new File(Environment.getExternalStorageDirectory(),
+				SNAPSHOT_FILE_PREFIX + snapshotIndex + "_"
+						+ presentationTimeUs / 1000 + "." + SNAPSHOT_FILE_EXTENSION);
 	}
 
 	public MediaFormat createOutputFormat(final int trackIndex) {
