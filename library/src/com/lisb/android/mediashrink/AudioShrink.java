@@ -81,6 +81,10 @@ public class AudioShrink {
 
 			int pendingDecoderOutputBufferIndex = -1;
 
+			long lastExtracterOutputPts = -1;
+			long lastDecoderOutputPts = -1;
+			long lastEncoderOutputPts = -1;
+
 			while (!encoderDone) {
 				while (!extractorDone) {
 					final int decoderInputBufferIndex = decoder
@@ -92,19 +96,24 @@ public class AudioShrink {
 					final int size = extractor.readSampleData(
 							decoderInputBuffer, 0);
 
+					final long pts = extractor.getSampleTime();
 					if (VERBOSE) {
-						Log.v(LOG_TAG,
-								"audio extractor output. size:" + size
-										+ ", sample time:"
-										+ extractor.getSampleTime()
-										+ ", sample flags:"
-										+ extractor.getSampleFlags());
+						Log.v(LOG_TAG, "audio extractor output. size:" + size
+								+ ", sample time:" + pts + ", sample flags:"
+								+ extractor.getSampleFlags());
 					}
 
 					if (size >= 0) {
+						if (lastExtracterOutputPts >= pts) {
+							Log.w(LOG_TAG, "extractor output pts(" + pts
+									+ ") is smaller than last pts("
+									+ +lastExtracterOutputPts + ").");
+						} else {
+							lastExtracterOutputPts = pts;
+						}
+
 						decoder.queueInputBuffer(decoderInputBufferIndex, 0,
-								size, extractor.getSampleTime(),
-								extractor.getSampleFlags());
+								size, pts, extractor.getSampleFlags());
 					}
 					extractorDone = !extractor.advance();
 					if (extractorDone) {
@@ -128,20 +137,29 @@ public class AudioShrink {
 						break;
 					}
 
-					if (VERBOSE) {
-						Log.v(LOG_TAG, "audio decoder output. time:"
-								+ decoderOutputBufferInfo.presentationTimeUs
-								+ ", offset:" + decoderOutputBufferInfo.offset
-								+ ", size:" + decoderOutputBufferInfo.size
-								+ ", flag:" + decoderOutputBufferInfo.flags);
-					}
-
 					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
 						decoder.releaseOutputBuffer(decoderOutputBufferIndex,
 								false);
 						break;
 					}
 					pendingDecoderOutputBufferIndex = decoderOutputBufferIndex;
+
+					final long pts = decoderOutputBufferInfo.presentationTimeUs;
+					if (VERBOSE) {
+						Log.v(LOG_TAG, "audio decoder output. time:" + pts
+								+ ", offset:" + decoderOutputBufferInfo.offset
+								+ ", size:" + decoderOutputBufferInfo.size
+								+ ", flag:" + decoderOutputBufferInfo.flags);
+					}
+
+					if (lastDecoderOutputPts >= pts) {
+						Log.w(LOG_TAG, "decoder output pts(" + pts
+								+ ") is smaller than last pts("
+								+ lastDecoderOutputPts + ").");
+					} else {
+						lastDecoderOutputPts = pts;
+					}
+
 					break;
 				}
 
@@ -201,14 +219,6 @@ public class AudioShrink {
 						break;
 					}
 
-					if (VERBOSE) {
-						Log.v(LOG_TAG, "audio encoder output. time:"
-								+ encoderOutputBufferInfo.presentationTimeUs
-								+ ", offset:" + encoderOutputBufferInfo.offset
-								+ ", size:" + encoderOutputBufferInfo.size
-								+ ", flag:" + encoderOutputBufferInfo.flags);
-					}
-
 					if (outputFormat == null) {
 						Log.e(LOG_TAG, "Can't create new audio format.");
 						throw new RuntimeException(
@@ -222,9 +232,24 @@ public class AudioShrink {
 						break;
 					}
 
+					final long pts = encoderOutputBufferInfo.presentationTimeUs;
+					if (VERBOSE) {
+						Log.v(LOG_TAG, "audio encoder output. time:" + pts
+								+ ", offset:" + encoderOutputBufferInfo.offset
+								+ ", size:" + encoderOutputBufferInfo.size
+								+ ", flag:" + encoderOutputBufferInfo.flags);
+					}
+
 					if (encoderOutputBufferInfo.size != 0) {
-						muxer.writeSampleData(trackIndex, encoderOutputBuffer,
-								encoderOutputBufferInfo);
+						if (lastEncoderOutputPts >= pts) {
+							Log.w(LOG_TAG, "encoder output pts(" + pts
+									+ ") is smaller than last pts("
+									+ lastEncoderOutputPts + ").");
+						} else {
+							muxer.writeSampleData(trackIndex, encoderOutputBuffer,
+									encoderOutputBufferInfo);
+							lastEncoderOutputPts = pts;
+						}
 					}
 					if ((encoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
 						Log.d(LOG_TAG, "audio encoder: EOS");
