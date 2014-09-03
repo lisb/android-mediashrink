@@ -19,36 +19,44 @@ import android.view.ContextMenu.ContextMenuInfo;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.View.OnClickListener;
+import android.widget.CheckBox;
+import android.widget.CompoundButton;
+import android.widget.CompoundButton.OnCheckedChangeListener;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.lisb.android.mediashrink.DecodeException;
 import com.lisb.android.mediashrink.MediaShrink;
 import com.lisb.android.mediashrink.example.R.id;
 import com.lisb.android.mediashrink.example.R.layout;
 
-public class ExampleActivity extends Activity implements OnClickListener {
+public class ExampleActivity extends Activity implements OnClickListener,
+		OnCheckedChangeListener {
 
 	private static final String LOG_TAG = ExampleActivity.class.getSimpleName();
 
 	private static final int MAX_WIDTH = 384;
 	private static final int VIDEO_BITRATE = 500 * 1024;
 	private static final int AUDIO_BITRATE = 128 * 1024;
-	
+
 	private static final String EXPORT_DIR = "exports";
 	private static final String EXPORT_FILE = "video.mp4";
 	private static final String SPREF_SELECTED_FILEPATH = "filepath";
+	private static final String SPREF_SOURCE_FROM_CAMERA = "source_from_camera";
 
-	private static final int RCODE_SELECT_FROM_GALLARY = 1;
 	private static final int RCODE_CAPTURE_VIDEO = 1;
+	private static final int RCODE_SELECT_FROM_GALLARY = 2;
 
 	private View progress;
 	private TextView txtSelectedVideoPath;
 	private View btnStartReencoding;
 	private View btnPlaySelectedVideo;
 	private View btnPlayReencodedVideo;
+	private CheckBox chkIsSourceFromCamera;
 
 	private AsyncTask<Void, Void, Exception> reencodeTask;
 	private Uri selectedVideoPath;
+	private boolean isSourceFromCamera;
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
@@ -73,10 +81,14 @@ public class ExampleActivity extends Activity implements OnClickListener {
 		progress = findViewById(android.R.id.progress);
 		txtSelectedVideoPath = (TextView) findViewById(id.txt_selected_video_path);
 
-		final String filepath = getSharedPreferences().getString(
-				SPREF_SELECTED_FILEPATH, null);
-		if (filepath != null) {
-			onFileSelected(Uri.parse(filepath));
+		chkIsSourceFromCamera = (CheckBox) findViewById(id.chk_is_source_from_camera);
+		chkIsSourceFromCamera.setOnCheckedChangeListener(this);
+
+		final SharedPreferences prefs = getSharedPreferences();
+		final String filepath = prefs.getString(SPREF_SELECTED_FILEPATH, null);
+		if (filepath != null && prefs.contains(SPREF_SOURCE_FROM_CAMERA)) {
+			onFileSelected(Uri.parse(filepath),
+					prefs.getBoolean(SPREF_SOURCE_FROM_CAMERA, false), false);
 		}
 
 		if (getOutput().exists()) {
@@ -94,18 +106,6 @@ public class ExampleActivity extends Activity implements OnClickListener {
 
 			Toast.makeText(this, "Please mount external storage.",
 					Toast.LENGTH_LONG).show();
-		}
-	}
-
-	@Override
-	protected void onPause() {
-		super.onPause();
-
-		if (selectedVideoPath != null) {
-			final Editor editor = getSharedPreferences().edit();
-			editor.putString(SPREF_SELECTED_FILEPATH,
-					selectedVideoPath.toString());
-			editor.commit();
 		}
 	}
 
@@ -156,20 +156,39 @@ public class ExampleActivity extends Activity implements OnClickListener {
 		super.onActivityResult(requestCode, resultCode, data);
 		switch (resultCode) {
 		case RESULT_OK:
-			onFileSelected(data.getData());
+			onFileSelected(data.getData(), requestCode == RCODE_CAPTURE_VIDEO,
+					true);
 		}
 	}
 
-	private void onFileSelected(final Uri uri) {
-		selectedVideoPath = uri;
+	private void onFileSelected(final Uri uri,
+			final boolean isSourceFromCamera, final boolean savePreference) {
+		this.selectedVideoPath = uri;
+		this.isSourceFromCamera = isSourceFromCamera;
+
 		if (uri != null) {
 			txtSelectedVideoPath.setText(uri.toString());
 			btnPlaySelectedVideo.setEnabled(true);
 			btnStartReencoding.setEnabled(true);
+			chkIsSourceFromCamera.setEnabled(true);
+			chkIsSourceFromCamera.setChecked(isSourceFromCamera);
 		} else {
 			txtSelectedVideoPath.setText("");
 			btnPlaySelectedVideo.setEnabled(false);
 			btnStartReencoding.setEnabled(false);
+			chkIsSourceFromCamera.setEnabled(false);
+		}
+
+		if (savePreference) {
+			final Editor editor = getSharedPreferences().edit();
+			if (uri != null) {
+				editor.putString(SPREF_SELECTED_FILEPATH,
+						selectedVideoPath.toString());
+				editor.putBoolean(SPREF_SOURCE_FROM_CAMERA, isSourceFromCamera);
+			} else {
+				editor.remove(SPREF_SELECTED_FILEPATH);
+			}
+			editor.commit();
 		}
 	}
 
@@ -192,8 +211,11 @@ public class ExampleActivity extends Activity implements OnClickListener {
 				shrink.setVideoBitRate(VIDEO_BITRATE);
 				shrink.setAudioBitRate(AUDIO_BITRATE);
 				try {
-					shrink.shrink(selectedVideoPath);
+					shrink.shrink(selectedVideoPath, !isSourceFromCamera);
 					return null;
+				} catch (DecodeException e) {
+					Log.e(LOG_TAG, "MediaShrink failed.", e);
+					return e;
 				} catch (IOException e) {
 					Log.e(LOG_TAG, "MediaShrink failed.", e);
 					return e;
@@ -209,8 +231,12 @@ public class ExampleActivity extends Activity implements OnClickListener {
 				if (result != null) {
 					getOutput().delete();
 					btnPlayReencodedVideo.setEnabled(false);
+					Toast.makeText(ExampleActivity.this, result.getMessage(),
+							Toast.LENGTH_SHORT).show();
 				} else {
 					btnPlayReencodedVideo.setEnabled(true);
+					Toast.makeText(ExampleActivity.this, "Success!",
+							Toast.LENGTH_SHORT).show();
 				}
 			}
 		};
@@ -247,5 +273,15 @@ public class ExampleActivity extends Activity implements OnClickListener {
 			break;
 		}
 
+	}
+
+	// ===== OnCheckedChangeLister ===== //
+
+	@Override
+	public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+		switch (buttonView.getId()) {
+		case id.chk_is_source_from_camera:
+			onFileSelected(selectedVideoPath, isChecked, true);
+		}
 	}
 }

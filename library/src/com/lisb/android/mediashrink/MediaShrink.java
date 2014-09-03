@@ -2,17 +2,24 @@ package com.lisb.android.mediashrink;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicReference;
 
 import android.content.Context;
+import android.graphics.SurfaceTexture;
 import android.media.MediaCodec;
 import android.media.MediaCodec.BufferInfo;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaMuxer;
+import android.media.MediaPlayer;
+import android.media.MediaPlayer.OnCompletionListener;
+import android.media.MediaPlayer.OnErrorListener;
 import android.net.Uri;
+import android.opengl.GLES20;
 import android.os.Build;
 import android.util.Log;
+import android.view.Surface;
 
 public class MediaShrink {
 
@@ -34,10 +41,10 @@ public class MediaShrink {
 		if (!OpenglUtils.supportsOpenglEs2(context)) {
 			return false;
 		}
-		
+
 		return true;
 	}
-	
+
 	public static MediaShrink createMediaShrink(final Context context) {
 		if (!isSupportedDevice(context)) {
 			return null;
@@ -50,7 +57,12 @@ public class MediaShrink {
 		this.context = context;
 	}
 
-	public void shrink(final Uri input) throws IOException {
+	public void shrink(final Uri src, final boolean checkSource)
+			throws IOException, DecodeException {
+		if (checkSource) {
+			checkDecodable(src);
+		}
+
 		MediaExtractor extractor = null;
 		MediaMetadataRetriever metadataRetriever = null;
 		MediaMuxer muxer = null;
@@ -70,8 +82,8 @@ public class MediaShrink {
 			// TODO デコードできないビデオやオーディオがあった場合、エラーを返す。
 
 			try {
-				extractor.setDataSource(context, input, null);
-				metadataRetriever.setDataSource(context, input);
+				extractor.setDataSource(context, src, null);
+				metadataRetriever.setDataSource(context, src);
 			} catch (IOException e) {
 				// TODO 多言語化
 				Log.e(LOG_TAG, "Reading input is failed.", e);
@@ -90,13 +102,14 @@ public class MediaShrink {
 			// トラックの作成。
 			for (int i = 0, length = extractor.getTrackCount(); i < length; i++) {
 				final MediaFormat format = extractor.getTrackFormat(i);
-				Log.d(LOG_TAG, "track [" + i + "] format: " + Utils.toString(format));
+				Log.d(LOG_TAG,
+						"track [" + i + "] format: " + Utils.toString(format));
 				if (isVideoFormat(format)) {
 					if (videoShrink == null) {
 						videoShrink = new VideoShrink(extractor,
 								metadataRetriever, muxer);
 						videoShrink.setMaxWidth(maxWidth);
-//						videoShrink.setMaxHeight(maxHeight);
+						// videoShrink.setMaxHeight(maxHeight);
 						videoShrink.setBitRate(videoBitRate);
 					}
 					muxer.addTrack(videoShrink.createOutputFormat(i));
@@ -151,6 +164,68 @@ public class MediaShrink {
 
 		if (re != null) {
 			throw re;
+		}
+	}
+
+	private void checkDecodable(Uri uri) throws IOException, DecodeException {
+		final MediaPlayer player = new MediaPlayer();
+		final Object lock = new Object();
+		final AtomicReference<Boolean> successRef = new AtomicReference<Boolean>(
+				false);
+
+		final int[] textures = new int[1];
+		GLES20.glGenTextures(1, textures, 0);
+		final SurfaceTexture surfaceTexture = new SurfaceTexture(textures[0]);
+		final Surface surface = new Surface(surfaceTexture);
+
+		try {
+			player.setDataSource(context, uri);
+			player.setSurface(surface);
+			player.setVolume(0f, 0f);
+
+			player.setOnErrorListener(new OnErrorListener() {
+				@Override
+				public boolean onError(MediaPlayer mp, int what, int extra) {
+					Log.e(LOG_TAG, "fail to play on MediaPlayer.");
+					synchronized (lock) {
+						lock.notifyAll();
+					}
+					return true;
+				}
+			});
+			player.setOnCompletionListener(new OnCompletionListener() {
+				@Override
+				public void onCompletion(MediaPlayer mp) {
+					Log.d(LOG_TAG, "complete to play on MediaPlayer.");
+					successRef.set(true);
+					synchronized (lock) {
+						lock.notifyAll();
+					}
+				}
+			});
+
+			player.prepare();
+			player.start();
+
+			while (player.isPlaying()) {
+				try {
+					synchronized (lock) {
+						lock.wait();
+					}
+				} catch (InterruptedException e) {
+					Log.e(LOG_TAG, "player lock is interrupted.", e);
+				}
+			}
+
+			if (!successRef.get()) {
+				throw new DecodeException("These movie is not decodable.");
+			}
+		} finally {
+			player.stop();
+			player.release();
+
+			surface.release();
+			surfaceTexture.release();
 		}
 	}
 
@@ -221,13 +296,12 @@ public class MediaShrink {
 	}
 
 	/*
-	 * Nexus 7(2013) ではある幅以外だとエンコード結果がおかしくなるので
-	 * 幅を固定して使うことになる。
+	 * Nexus 7(2013) ではある幅以外だとエンコード結果がおかしくなるので 幅を固定して使うことになる。
 	 * 幅を固定する以外のうまい方法が見つかるまではこのメソッドの使用不可にする。
 	 */
-//	public void setMaxHeight(int maxHeight) {
-//		this.maxHeight = maxHeight;
-//	}
+	// public void setMaxHeight(int maxHeight) {
+	// this.maxHeight = maxHeight;
+	// }
 
 	/**
 	 * ビデオの最大の長さ。 この長さを越えるビデオのエンコードは行わない。
