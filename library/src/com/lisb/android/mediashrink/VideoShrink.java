@@ -18,7 +18,7 @@ public class VideoShrink {
 	private static final String LOG_TAG = VideoShrink.class.getSimpleName();
 	private static final boolean VERBOSE = false;
 	private static final boolean DEBUG = false; // デバッグ用にスナップショットを出力する
-	
+
 	private static final String CODEC = "video/avc";
 	private static final long TIMEOUT_USEC = 250;
 	private static final int I_FRAME_INTERVAL = 5;
@@ -64,20 +64,18 @@ public class VideoShrink {
 	}
 
 	/*
-	 * Nexus 7(2013) ではある幅以外だとエンコード結果がおかしくなるので
-	 * 幅を固定して使うことになる。
+	 * Nexus 7(2013) ではある幅以外だとエンコード結果がおかしくなるので 幅を固定して使うことになる。
 	 * 幅を固定する以外のうまい方法が見つかるまではこのメソッドの使用不可にする。
 	 * 
-	 * @param maxHeight
-	 *            0以下の時、無視される
+	 * @param maxHeight 0以下の時、無視される
 	 */
-//	public void setMaxHeight(int maxHeight) {
-//		if (maxHeight > 0 && maxHeight % 16 > 0) {
-//			throw new IllegalArgumentException(
-//					"Only multiples of 16 is supported.");
-//		}
-//		this.maxHeight = maxHeight;
-//	}
+	// public void setMaxHeight(int maxHeight) {
+	// if (maxHeight > 0 && maxHeight % 16 > 0) {
+	// throw new IllegalArgumentException(
+	// "Only multiples of 16 is supported.");
+	// }
+	// this.maxHeight = maxHeight;
+	// }
 
 	public void setBitRate(int bitRate) {
 		this.bitRate = bitRate;
@@ -156,8 +154,10 @@ public class VideoShrink {
 			return round + 16 - rem;
 		}
 	}
-	
-	private MediaFormat reencode(final int trackIndex, final boolean forFormat) {
+
+	@SuppressWarnings("unused")
+	private MediaFormat reencode(final int trackIndex,
+			final Integer newTrackIndex) {
 		final MediaFormat currentFormat = extractor.getTrackFormat(trackIndex);
 		final MediaFormat encoderConfigurationFormat = createEncoderConfigurationFormat(currentFormat);
 
@@ -192,13 +192,13 @@ public class VideoShrink {
 					.getInteger(MediaFormat.KEY_WIDTH);
 			snapshotOptions.height = encoderConfigurationFormat
 					.getInteger(MediaFormat.KEY_HEIGHT);
-			snapshotDuration = currentFormat
-					.getLong(MediaFormat.KEY_DURATION) / NUMBER_OF_SNAPSHOT;
+			snapshotDuration = currentFormat.getLong(MediaFormat.KEY_DURATION)
+					/ NUMBER_OF_SNAPSHOT;
 		} else {
 			snapshotOptions = null;
 			snapshotDuration = 0;
 		}
-		
+
 		try {
 			extractor.selectTrack(trackIndex);
 
@@ -276,7 +276,7 @@ public class VideoShrink {
 						} else {
 							outputSurface.drawNewImage(null);
 						}
-						
+
 						inputSurface
 								.setPresentationTime(decoderOutputBufferInfo.presentationTimeUs * 1000);
 						inputSurface.swapBuffers();
@@ -302,7 +302,7 @@ public class VideoShrink {
 						outputFormat = encoder.getOutputFormat();
 						Log.d(LOG_TAG, "video encoder: output format changed. "
 								+ outputFormat);
-						if (forFormat) {
+						if (newTrackIndex == null) {
 							return outputFormat;
 						}
 						break;
@@ -334,8 +334,8 @@ public class VideoShrink {
 						break;
 					}
 					if (encoderOutputBufferInfo.size != 0) {
-						muxer.writeSampleData(trackIndex, encoderOutputBuffer,
-								encoderOutputBufferInfo);
+						muxer.writeSampleData(newTrackIndex,
+								encoderOutputBuffer, encoderOutputBufferInfo);
 					}
 					if ((encoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
 						Log.d(LOG_TAG, "video encoder: EOS");
@@ -358,19 +358,19 @@ public class VideoShrink {
 			extractor.unselectTrack(trackIndex);
 		}
 	}
-	
+
 	private File getSnapshotFile(int snapshotIndex, long presentationTimeUs) {
 		return new File(Environment.getExternalStorageDirectory(),
-				SNAPSHOT_FILE_PREFIX + snapshotIndex + "_"
-						+ presentationTimeUs / 1000 + "." + SNAPSHOT_FILE_EXTENSION);
+				SNAPSHOT_FILE_PREFIX + snapshotIndex + "_" + presentationTimeUs
+						/ 1000 + "." + SNAPSHOT_FILE_EXTENSION);
 	}
 
 	public MediaFormat createOutputFormat(final int trackIndex) {
-		return reencode(trackIndex, true);
+		return reencode(trackIndex, null);
 	}
 
-	public void shrink(final int trackIndex) {
-		reencode(trackIndex, false);
+	public void shrink(final int trackIndex, final int newTrackIndex) {
+		reencode(trackIndex, newTrackIndex);
 	}
 
 	private MediaCodec createDecoder(final MediaFormat format,

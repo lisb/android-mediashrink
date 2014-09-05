@@ -12,7 +12,7 @@ import android.util.Log;
 public class AudioShrink {
 
 	private static final String LOG_TAG = AudioShrink.class.getSimpleName();
-	private static final boolean VERBOSE = true;
+	private static final boolean VERBOSE = false;
 
 	private static final long TIMEOUT_USEC = 250;
 	private static final String CODEC = "audio/mp4a-latm";
@@ -53,7 +53,8 @@ public class AudioShrink {
 		return format;
 	}
 
-	private MediaFormat reencode(final int trackIndex, final boolean forFormat) {
+	private MediaFormat reencode(final int trackIndex,
+			final Integer newTrackIndex) {
 		final MediaFormat currentFormat = extractor.getTrackFormat(trackIndex);
 		final MediaFormat encoderConfigurationFormat = createEncoderConfigurationFormat(currentFormat);
 
@@ -209,7 +210,7 @@ public class AudioShrink {
 					if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
 						outputFormat = encoder.getOutputFormat();
 						Log.d(LOG_TAG, "create new format:" + outputFormat);
-						if (forFormat) {
+						if (newTrackIndex == null) {
 							return outputFormat;
 						}
 						break;
@@ -246,7 +247,8 @@ public class AudioShrink {
 									+ ") is smaller than last pts("
 									+ lastEncoderOutputPts + ").");
 						} else {
-							muxer.writeSampleData(trackIndex, encoderOutputBuffer,
+							muxer.writeSampleData(newTrackIndex,
+									encoderOutputBuffer,
 									encoderOutputBufferInfo);
 							lastEncoderOutputPts = pts;
 						}
@@ -271,11 +273,11 @@ public class AudioShrink {
 	}
 
 	public MediaFormat createOutputFormat(final int trackIndex) {
-		return reencode(trackIndex, true);
+		return reencode(trackIndex, null);
 	}
 
-	public void shrink(final int trackIndex) {
-		reencode(trackIndex, false);
+	public void shrink(final int trackIndex, final int newTrackIndex) {
+		reencode(trackIndex, newTrackIndex);
 	}
 
 	private MediaCodec createDecoder(final MediaFormat format) {

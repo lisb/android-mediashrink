@@ -1,13 +1,10 @@
 package com.lisb.android.mediashrink;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicReference;
 
 import android.content.Context;
 import android.graphics.SurfaceTexture;
-import android.media.MediaCodec;
-import android.media.MediaCodec.BufferInfo;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.media.MediaMetadataRetriever;
@@ -19,6 +16,7 @@ import android.net.Uri;
 import android.opengl.GLES20;
 import android.os.Build;
 import android.util.Log;
+import android.util.SparseIntArray;
 import android.view.Surface;
 
 public class MediaShrink {
@@ -27,7 +25,6 @@ public class MediaShrink {
 	private final Context context;
 
 	private int maxWidth = -1;
-	private int maxHeight = -1;
 	private long maxLength = -1;
 	private int audioBitRate;
 	private int videoBitRate;
@@ -100,6 +97,7 @@ public class MediaShrink {
 			}
 
 			// トラックの作成。
+			final SparseIntArray trackMap = new SparseIntArray(2);
 			for (int i = 0, length = extractor.getTrackCount(); i < length; i++) {
 				final MediaFormat format = extractor.getTrackFormat(i);
 				Log.d(LOG_TAG,
@@ -109,32 +107,37 @@ public class MediaShrink {
 						videoShrink = new VideoShrink(extractor,
 								metadataRetriever, muxer);
 						videoShrink.setMaxWidth(maxWidth);
-						// videoShrink.setMaxHeight(maxHeight);
 						videoShrink.setBitRate(videoBitRate);
 					}
-					muxer.addTrack(videoShrink.createOutputFormat(i));
+					final int newVideoTrack = muxer.addTrack(videoShrink
+							.createOutputFormat(i));
+					trackMap.put(i, newVideoTrack);
 				} else if (isAudioFormat(format)) {
 					if (audioShrink == null) {
 						audioShrink = new AudioShrink(extractor, muxer);
 						audioShrink.setBitRate(audioBitRate);
 					}
-					muxer.addTrack(audioShrink.createOutputFormat(i));
+					final int newAudioTrack = muxer.addTrack(audioShrink
+							.createOutputFormat(i));
+					trackMap.put(i, newAudioTrack);
 				} else {
-					muxer.addTrack(format);
+					Log.e(LOG_TAG,
+							"drop this track because it's unsupported format. format:"
+									+ Utils.toString(format));
 				}
 			}
 
 			muxer.start();
 
 			// 実際のデータの書き込み
-			for (int i = 0, length = extractor.getTrackCount(); i < length; i++) {
-				final MediaFormat format = extractor.getTrackFormat(i);
+			for (int i = 0, length = trackMap.size(); i < length; i++) {
+				final int trackIndex = trackMap.keyAt(i);
+				final int newTrackIndex = trackMap.valueAt(i);
+				final MediaFormat format = extractor.getTrackFormat(trackIndex);
 				if (isVideoFormat(format)) {
-					videoShrink.shrink(i);
+					videoShrink.shrink(trackIndex, newTrackIndex);
 				} else if (isAudioFormat(format)) {
-					audioShrink.shrink(i);
-				} else {
-					copyTrack(extractor, muxer, i);
+					audioShrink.shrink(trackIndex, newTrackIndex);
 				}
 			}
 		} catch (RuntimeException e) {
@@ -188,6 +191,7 @@ public class MediaShrink {
 				public boolean onError(MediaPlayer mp, int what, int extra) {
 					Log.e(LOG_TAG, "fail to play on MediaPlayer.");
 					synchronized (lock) {
+						player.stop();
 						lock.notifyAll();
 					}
 					return true;
@@ -199,6 +203,7 @@ public class MediaShrink {
 					Log.d(LOG_TAG, "complete to play on MediaPlayer.");
 					successRef.set(true);
 					synchronized (lock) {
+						player.stop();
 						lock.notifyAll();
 					}
 				}
@@ -227,32 +232,6 @@ public class MediaShrink {
 			surface.release();
 			surfaceTexture.release();
 		}
-	}
-
-	private void copyTrack(final MediaExtractor extractor,
-			final MediaMuxer muxer, final int trackIndex) {
-		// TODO バッファのサイズを調整
-		final ByteBuffer byteBuf = ByteBuffer.allocate(1024 * 1024);
-		final BufferInfo bufInfo = new BufferInfo();
-
-		extractor.selectTrack(trackIndex);
-		int size;
-		while ((size = extractor.readSampleData(byteBuf, 0)) != -1) {
-			bufInfo.offset = 0;
-			bufInfo.flags = extractor.getSampleFlags();
-			bufInfo.presentationTimeUs = extractor.getSampleTime();
-			bufInfo.size = size;
-			muxer.writeSampleData(trackIndex, byteBuf, bufInfo);
-			extractor.advance();
-		}
-
-		bufInfo.offset = 0;
-		bufInfo.flags = MediaCodec.BUFFER_FLAG_END_OF_STREAM;
-		bufInfo.presentationTimeUs = 0;
-		bufInfo.size = 0;
-		muxer.writeSampleData(trackIndex, byteBuf, bufInfo);
-
-		extractor.unselectTrack(trackIndex);
 	}
 
 	private boolean isVideoFormat(MediaFormat format) {
