@@ -1,6 +1,7 @@
 package com.lisb.android.mediashrink;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicReference;
 
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
@@ -22,6 +23,8 @@ public class AudioShrink {
 	private final MediaExtractor extractor;
 	private final MediaMuxer muxer;
 
+	private int sampleCount;
+
 	public AudioShrink(MediaExtractor extractor, MediaMuxer muxer) {
 		this.extractor = extractor;
 		this.muxer = muxer;
@@ -29,11 +32,6 @@ public class AudioShrink {
 
 	public void setBitRate(int bitRate) {
 		this.bitRate = bitRate;
-	}
-
-	public boolean isSupportFormat(int trackIndex) {
-		// TODO
-		return true;
 	}
 
 	/**
@@ -53,32 +51,64 @@ public class AudioShrink {
 		return format;
 	}
 
-	private MediaFormat reencode(final int trackIndex,
-			final Integer newTrackIndex) {
+	private interface ReencodeListener {
+		/**
+		 * @return if stop or not
+		 */
+		boolean onFrameDecoded(MediaCodec decoder);
+
+		/**
+		 * @return if stop or not
+		 */
+		boolean onEncoderFormatChanged(MediaCodec encoder);
+	}
+
+	private void reencode(final int trackIndex, final Integer newTrackIndex,
+			final boolean doDecode, final boolean doEncode,
+			final ReencodeListener listener) throws DecodeException {
 		final MediaFormat currentFormat = extractor.getTrackFormat(trackIndex);
 		final MediaFormat encoderConfigurationFormat = createEncoderConfigurationFormat(currentFormat);
 
-		final MediaCodec encoder = createEncoder(encoderConfigurationFormat);
-		encoder.start();
+		MediaCodec encoder = null;
+		MediaCodec decoder = null;
 
-		final MediaCodec decoder = createDecoder(currentFormat);
-		decoder.start();
+		ByteBuffer[] decoderInputBuffers = null;
+		ByteBuffer[] decoderOutputBuffers = null;
+		MediaCodec.BufferInfo decoderOutputBufferInfo = null;
+
+		ByteBuffer[] encoderInputBuffers = null;
+		ByteBuffer[] encoderOutputBuffers = null;
+		MediaCodec.BufferInfo encoderOutputBufferInfo = null;
 
 		try {
-			extractor.selectTrack(trackIndex);
+			if (doEncode) {
+				encoder = createEncoder(encoderConfigurationFormat);
+				encoder.start();
 
-			final ByteBuffer[] decoderInputBuffers = decoder.getInputBuffers();
-			ByteBuffer[] decoderOutputBuffers = decoder.getOutputBuffers();
-			final MediaCodec.BufferInfo decoderOutputBufferInfo = new MediaCodec.BufferInfo();
+				encoderInputBuffers = encoder.getInputBuffers();
+				encoderOutputBuffers = encoder.getOutputBuffers();
+				encoderOutputBufferInfo = new MediaCodec.BufferInfo();
+			}
 
-			final ByteBuffer[] encoderInputBuffers = encoder.getInputBuffers();
-			ByteBuffer[] encoderOutputBuffers = encoder.getOutputBuffers();
-			final MediaCodec.BufferInfo encoderOutputBufferInfo = new MediaCodec.BufferInfo();
+			if (doDecode) {
+				decoder = createDecoder(currentFormat);
 
-			MediaFormat outputFormat = null;
+				if (decoder == null) {
+					Log.e(LOG_TAG, "audio decoder not found.");
+					throw new DecodeException("audio decoder not found.");
+				}
+
+				decoder.start();
+
+				decoderInputBuffers = decoder.getInputBuffers();
+				decoderOutputBuffers = decoder.getOutputBuffers();
+				decoderOutputBufferInfo = new MediaCodec.BufferInfo();
+
+				extractor.selectTrack(trackIndex);
+			}
+
 			boolean extractorDone = false;
 			boolean decoderDone = false;
-			boolean encoderDone = false;
 
 			int pendingDecoderOutputBufferIndex = -1;
 
@@ -86,206 +116,275 @@ public class AudioShrink {
 			long lastDecoderOutputPts = -1;
 			long lastEncoderOutputPts = -1;
 
-			while (!encoderDone) {
-				while (!extractorDone) {
-					final int decoderInputBufferIndex = decoder
-							.dequeueInputBuffer(TIMEOUT_USEC);
-					if (decoderInputBufferIndex < 0) {
+			while (true) {
+				if (doDecode) {
+					while (!extractorDone) {
+						final int decoderInputBufferIndex = decoder
+								.dequeueInputBuffer(TIMEOUT_USEC);
+						if (decoderInputBufferIndex < 0) {
+							break;
+						}
+						final ByteBuffer decoderInputBuffer = decoderInputBuffers[decoderInputBufferIndex];
+						final int size = extractor.readSampleData(
+								decoderInputBuffer, 0);
+
+						final long pts = extractor.getSampleTime();
+						if (VERBOSE) {
+							Log.v(LOG_TAG,
+									"audio extractor output. size:" + size
+											+ ", sample time:" + pts
+											+ ", sample flags:"
+											+ extractor.getSampleFlags());
+						}
+
+						if (size >= 0) {
+							if (lastExtracterOutputPts >= pts) {
+								Log.w(LOG_TAG, "extractor output pts(" + pts
+										+ ") is smaller than last pts("
+										+ +lastExtracterOutputPts + ").");
+							} else {
+								lastExtracterOutputPts = pts;
+							}
+
+							decoder.queueInputBuffer(decoderInputBufferIndex,
+									0, size, pts, extractor.getSampleFlags());
+						}
+						extractorDone = !extractor.advance();
+						if (extractorDone) {
+							Log.d(LOG_TAG, "audio extractor: EOS");
+							decoder.queueInputBuffer(decoderInputBufferIndex,
+									0, 0, 0,
+									MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+						}
 						break;
 					}
-					final ByteBuffer decoderInputBuffer = decoderInputBuffers[decoderInputBufferIndex];
-					final int size = extractor.readSampleData(
-							decoderInputBuffer, 0);
 
-					final long pts = extractor.getSampleTime();
-					if (VERBOSE) {
-						Log.v(LOG_TAG, "audio extractor output. size:" + size
-								+ ", sample time:" + pts + ", sample flags:"
-								+ extractor.getSampleFlags());
-					}
+					while (!decoderDone
+							&& pendingDecoderOutputBufferIndex == -1) {
+						final int decoderOutputBufferIndex = decoder
+								.dequeueOutputBuffer(decoderOutputBufferInfo,
+										TIMEOUT_USEC);
+						if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
+							Log.d(LOG_TAG,
+									"audio decoder: output buffers changed");
+							decoderOutputBuffers = decoder.getOutputBuffers();
+							break;
+						}
+						if (decoderOutputBufferIndex < 0) {
+							break;
+						}
 
-					if (size >= 0) {
-						if (lastExtracterOutputPts >= pts) {
-							Log.w(LOG_TAG, "extractor output pts(" + pts
+						if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+							decoder.releaseOutputBuffer(
+									decoderOutputBufferIndex, false);
+							break;
+						}
+						pendingDecoderOutputBufferIndex = decoderOutputBufferIndex;
+
+						final long pts = decoderOutputBufferInfo.presentationTimeUs;
+						if (VERBOSE) {
+							Log.v(LOG_TAG, "audio decoder output. time:" + pts
+									+ ", offset:"
+									+ decoderOutputBufferInfo.offset
+									+ ", size:" + decoderOutputBufferInfo.size
+									+ ", flag:" + decoderOutputBufferInfo.flags);
+						}
+
+						if (lastDecoderOutputPts >= pts) {
+							Log.w(LOG_TAG, "decoder output pts(" + pts
 									+ ") is smaller than last pts("
-									+ +lastExtracterOutputPts + ").");
+									+ lastDecoderOutputPts + ").");
 						} else {
-							lastExtracterOutputPts = pts;
+							lastDecoderOutputPts = pts;
 						}
 
-						decoder.queueInputBuffer(decoderInputBufferIndex, 0,
-								size, pts, extractor.getSampleFlags());
-					}
-					extractorDone = !extractor.advance();
-					if (extractorDone) {
-						Log.d(LOG_TAG, "audio extractor: EOS");
-						decoder.queueInputBuffer(decoderInputBufferIndex, 0, 0,
-								0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-					}
-					break;
-				}
-
-				while (!decoderDone && pendingDecoderOutputBufferIndex == -1) {
-					final int decoderOutputBufferIndex = decoder
-							.dequeueOutputBuffer(decoderOutputBufferInfo,
-									TIMEOUT_USEC);
-					if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
-						Log.d(LOG_TAG, "audio decoder: output buffers changed");
-						decoderOutputBuffers = decoder.getOutputBuffers();
-						break;
-					}
-					if (decoderOutputBufferIndex < 0) {
 						break;
 					}
 
-					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
-						decoder.releaseOutputBuffer(decoderOutputBufferIndex,
-								false);
-						break;
-					}
-					pendingDecoderOutputBufferIndex = decoderOutputBufferIndex;
+					while (pendingDecoderOutputBufferIndex != -1) {
+						if (doEncode) {
+							final int encoderInputBufferIndex = encoder
+									.dequeueInputBuffer(TIMEOUT_USEC);
+							if (encoderInputBufferIndex < 0) {
+								break;
+							}
+							final ByteBuffer encoderInputBuffer = encoderInputBuffers[encoderInputBufferIndex];
+							final ByteBuffer decoderOutputBuffer = decoderOutputBuffers[pendingDecoderOutputBufferIndex]
+									.duplicate();
 
-					final long pts = decoderOutputBufferInfo.presentationTimeUs;
-					if (VERBOSE) {
-						Log.v(LOG_TAG, "audio decoder output. time:" + pts
-								+ ", offset:" + decoderOutputBufferInfo.offset
-								+ ", size:" + decoderOutputBufferInfo.size
-								+ ", flag:" + decoderOutputBufferInfo.flags);
-					}
+							decoderOutputBuffer
+									.position(decoderOutputBufferInfo.offset);
+							decoderOutputBuffer
+									.limit(decoderOutputBufferInfo.offset
+											+ decoderOutputBufferInfo.size);
+							encoderInputBuffer.position(0);
+							encoderInputBuffer.put(decoderOutputBuffer);
 
-					if (lastDecoderOutputPts >= pts) {
-						Log.w(LOG_TAG, "decoder output pts(" + pts
-								+ ") is smaller than last pts("
-								+ lastDecoderOutputPts + ").");
-					} else {
-						lastDecoderOutputPts = pts;
-					}
+							encoder.queueInputBuffer(encoderInputBufferIndex,
+									0, decoderOutputBufferInfo.size,
+									decoderOutputBufferInfo.presentationTimeUs,
+									decoderOutputBufferInfo.flags);
+						}
 
-					break;
-				}
+						decoder.releaseOutputBuffer(
+								pendingDecoderOutputBufferIndex, false);
 
-				while (pendingDecoderOutputBufferIndex != -1) {
-					final int encoderInputBufferIndex = encoder
-							.dequeueInputBuffer(TIMEOUT_USEC);
-					if (encoderInputBufferIndex < 0) {
-						break;
-					}
-					final ByteBuffer encoderInputBuffer = encoderInputBuffers[encoderInputBufferIndex];
-					final ByteBuffer decoderOutputBuffer = decoderOutputBuffers[pendingDecoderOutputBufferIndex]
-							.duplicate();
+						if (decoderOutputBufferInfo.size != 0
+								&& listener != null) {
+							if (listener.onFrameDecoded(decoder)) {
+								return;
+							}
+						}
 
-					decoderOutputBuffer
-							.position(decoderOutputBufferInfo.offset);
-					decoderOutputBuffer.limit(decoderOutputBufferInfo.offset
-							+ decoderOutputBufferInfo.size);
-					encoderInputBuffer.position(0);
-					encoderInputBuffer.put(decoderOutputBuffer);
+						pendingDecoderOutputBufferIndex = -1;
+						if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+							Log.d(LOG_TAG, "audio decoder: EOS");
+							decoderDone = true;
 
-					encoder.queueInputBuffer(encoderInputBufferIndex, 0,
-							decoderOutputBufferInfo.size,
-							decoderOutputBufferInfo.presentationTimeUs,
-							decoderOutputBufferInfo.flags);
-					decoder.releaseOutputBuffer(
-							pendingDecoderOutputBufferIndex, false);
+							if (!doEncode) {
+								return;
+							}
 
-					pendingDecoderOutputBufferIndex = -1;
-					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-						Log.d(LOG_TAG, "audio decoder: EOS");
-						decoderDone = true;
-					}
-					break;
-				}
-
-				while (!encoderDone) {
-					final int encoderOutputBufferIndex = encoder
-							.dequeueOutputBuffer(encoderOutputBufferInfo,
-									TIMEOUT_USEC);
-
-					if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
-						Log.d(LOG_TAG, "audio encoder: output buffers changed");
-						encoderOutputBuffers = encoder.getOutputBuffers();
-						break;
-					}
-
-					if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-						outputFormat = encoder.getOutputFormat();
-						Log.d(LOG_TAG, "create new format:" + outputFormat);
-						if (newTrackIndex == null) {
-							return outputFormat;
 						}
 						break;
 					}
+				}
 
-					if (encoderOutputBufferIndex < 0) {
-						break;
-					}
+				if (doEncode) {
+					while (true) {
+						final int encoderOutputBufferIndex = encoder
+								.dequeueOutputBuffer(encoderOutputBufferInfo,
+										TIMEOUT_USEC);
 
-					if (outputFormat == null) {
-						Log.e(LOG_TAG, "Can't create new audio format.");
-						throw new RuntimeException(
-								"Can't create new audio format.");
-					}
+						if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
+							Log.d(LOG_TAG,
+									"audio encoder: output buffers changed");
+							encoderOutputBuffers = encoder.getOutputBuffers();
+							break;
+						}
 
-					final ByteBuffer encoderOutputBuffer = encoderOutputBuffers[encoderOutputBufferIndex];
-					if ((encoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+						if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+							if (listener != null) {
+								if (listener.onEncoderFormatChanged(encoder)) {
+									return;
+								}
+							}
+							break;
+						}
+
+						if (encoderOutputBufferIndex < 0) {
+							break;
+						}
+
+						final ByteBuffer encoderOutputBuffer = encoderOutputBuffers[encoderOutputBufferIndex];
+						if ((encoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+							encoder.releaseOutputBuffer(
+									encoderOutputBufferIndex, false);
+							break;
+						}
+
+						final long pts = encoderOutputBufferInfo.presentationTimeUs;
+						if (VERBOSE) {
+							Log.v(LOG_TAG, "audio encoder output. time:" + pts
+									+ ", offset:"
+									+ encoderOutputBufferInfo.offset
+									+ ", size:" + encoderOutputBufferInfo.size
+									+ ", flag:" + encoderOutputBufferInfo.flags);
+						}
+
+						if (encoderOutputBufferInfo.size != 0) {
+							if (lastEncoderOutputPts >= pts) {
+								Log.w(LOG_TAG, "encoder output pts(" + pts
+										+ ") is smaller than last pts("
+										+ lastEncoderOutputPts + ").");
+							} else {
+								muxer.writeSampleData(newTrackIndex,
+										encoderOutputBuffer,
+										encoderOutputBufferInfo);
+								lastEncoderOutputPts = pts;
+							}
+						}
+						if ((encoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+							Log.d(LOG_TAG, "audio encoder: EOS");
+							return;
+						}
 						encoder.releaseOutputBuffer(encoderOutputBufferIndex,
 								false);
 						break;
 					}
-
-					final long pts = encoderOutputBufferInfo.presentationTimeUs;
-					if (VERBOSE) {
-						Log.v(LOG_TAG, "audio encoder output. time:" + pts
-								+ ", offset:" + encoderOutputBufferInfo.offset
-								+ ", size:" + encoderOutputBufferInfo.size
-								+ ", flag:" + encoderOutputBufferInfo.flags);
-					}
-
-					if (encoderOutputBufferInfo.size != 0) {
-						if (lastEncoderOutputPts >= pts) {
-							Log.w(LOG_TAG, "encoder output pts(" + pts
-									+ ") is smaller than last pts("
-									+ lastEncoderOutputPts + ").");
-						} else {
-							muxer.writeSampleData(newTrackIndex,
-									encoderOutputBuffer,
-									encoderOutputBufferInfo);
-							lastEncoderOutputPts = pts;
-						}
-					}
-					if ((encoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-						Log.d(LOG_TAG, "audio encoder: EOS");
-						encoderDone = true;
-					}
-					encoder.releaseOutputBuffer(encoderOutputBufferIndex, false);
-					break;
 				}
 			}
-			return outputFormat;
 		} finally {
-			encoder.stop();
-			encoder.release();
-			decoder.stop();
-			decoder.release();
+			if (encoder != null) {
+				encoder.stop();
+				encoder.release();
+			}
 
-			extractor.unselectTrack(trackIndex);
+			if (decoder != null) {
+				decoder.stop();
+				decoder.release();
+			}
+
+			if (doDecode) {
+				extractor.unselectTrack(trackIndex);
+			}
 		}
 	}
 
-	public MediaFormat createOutputFormat(final int trackIndex) {
-		return reencode(trackIndex, null);
+	public MediaFormat createOutputFormat(final int trackIndex)
+			throws DecodeException {
+		sampleCount = 0;
+		reencode(trackIndex, null, true, false, new ReencodeListener() {
+			@Override
+			public boolean onFrameDecoded(MediaCodec decoder) {
+				sampleCount++;
+				return false;
+			}
+
+			@Override
+			public boolean onEncoderFormatChanged(MediaCodec encoder) {
+				return false;
+			}
+		});
+
+		if (sampleCount == 0) {
+			Log.e(LOG_TAG, "no audio sample found.");
+			throw new DecodeException("no audio sample found.");
+		}
+
+		final AtomicReference<MediaFormat> formatRef = new AtomicReference<>();
+		reencode(trackIndex, null, false, true, new ReencodeListener() {
+			@Override
+			public boolean onFrameDecoded(MediaCodec decoder) {
+				return false;
+			}
+
+			@Override
+			public boolean onEncoderFormatChanged(MediaCodec encoder) {
+				Log.d(LOG_TAG, "audio encoder: output format changed. "
+						+ encoder.getOutputFormat());
+				formatRef.set(encoder.getOutputFormat());
+				return true;
+			}
+		});
+
+		return formatRef.get();
 	}
 
-	public void shrink(final int trackIndex, final int newTrackIndex) {
-		reencode(trackIndex, newTrackIndex);
+	public void shrink(final int trackIndex, final int newTrackIndex)
+			throws DecodeException {
+		reencode(trackIndex, newTrackIndex, true, true, null);
 	}
 
 	private MediaCodec createDecoder(final MediaFormat format) {
-		final MediaCodec decoder = MediaCodec.createDecoderByType(format
-				.getString(MediaFormat.KEY_MIME));
-		decoder.configure(format, null, null, 0);
+		final String mimeType = format.getString(MediaFormat.KEY_MIME);
+		final MediaCodec decoder = MediaCodec.createByCodecName(Utils
+				.selectCodec(mimeType, false).getName());
+		if (decoder != null) {
+			decoder.configure(format, null, null, 0);
 
-		Log.d(LOG_TAG, "audio decoder:" + decoder.getName());
+			Log.d(LOG_TAG, "audio decoder:" + decoder.getName());
+		}
 		return decoder;
 	}
 

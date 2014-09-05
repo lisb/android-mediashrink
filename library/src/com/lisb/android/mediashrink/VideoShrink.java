@@ -238,8 +238,8 @@ public class VideoShrink {
 					decoder = createDecoder(currentFormat,
 							outputSurface.getSurface());
 					if (decoder == null) {
-						Log.e(LOG_TAG, "decoder not found.");
-						throw new DecodeException("decoder not found.");
+						Log.e(LOG_TAG, "video decoder not found.");
+						throw new DecodeException("video decoder not found.");
 					}
 				} else {
 					decoder = createDecoder(currentFormat, null);
@@ -474,8 +474,8 @@ public class VideoShrink {
 		});
 
 		if (frameCount == 0) {
-			Log.e(LOG_TAG, "no frame found.");
-			throw new DecodeException("no frame found.");
+			Log.e(LOG_TAG, "no video frame found.");
+			throw new DecodeException("no video frame found.");
 		}
 
 		final AtomicReference<MediaFormat> formatRef = new AtomicReference<>();
