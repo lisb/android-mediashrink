@@ -75,7 +75,6 @@ public class MediaShrink {
 			metadataRetriever = new MediaMetadataRetriever();
 
 			// TODO ビデオが maxLength より長い場合、エラーを返す。
-			// TODO トラックにビデオ、オーディオがそれぞれ2つ以上設定されていた場合、エラーを返す。(MediaMuxerが対応していない)
 			// TODO デコードできないビデオやオーディオがあった場合、エラーを返す。
 
 			try {
@@ -103,27 +102,37 @@ public class MediaShrink {
 				Log.d(LOG_TAG,
 						"track [" + i + "] format: " + Utils.toString(format));
 				if (isVideoFormat(format)) {
-					if (videoShrink == null) {
-						videoShrink = new VideoShrink(extractor,
-								metadataRetriever, muxer);
-						videoShrink.setMaxWidth(maxWidth);
-						videoShrink.setBitRate(videoBitRate);
+					if (videoShrink != null) {
+						// MediaMuxer がビデオ、オーディオそれぞれ1つずつしか含めることができないため。
+						Log.w(LOG_TAG,
+								"drop track. support one video track only. track:"
+										+ i);
+						continue;
 					}
+					videoShrink = new VideoShrink(extractor, metadataRetriever,
+							muxer);
+					videoShrink.setMaxWidth(maxWidth);
+					videoShrink.setBitRate(videoBitRate);
 					final int newVideoTrack = muxer.addTrack(videoShrink
 							.createOutputFormat(i));
 					trackMap.put(i, newVideoTrack);
 				} else if (isAudioFormat(format)) {
-					if (audioShrink == null) {
-						audioShrink = new AudioShrink(extractor, muxer);
-						audioShrink.setBitRate(audioBitRate);
+					if (audioShrink != null) {
+						// MediaMuxer がビデオ、オーディオそれぞれ1つずつしか含めることができないため。
+						Log.w(LOG_TAG,
+								"drop track. support one audio track only. track:"
+										+ i);
+						continue;
 					}
+
+					audioShrink = new AudioShrink(extractor, muxer);
+					audioShrink.setBitRate(audioBitRate);
 					final int newAudioTrack = muxer.addTrack(audioShrink
 							.createOutputFormat(i));
 					trackMap.put(i, newAudioTrack);
 				} else {
-					Log.e(LOG_TAG,
-							"drop this track because it's unsupported format. format:"
-									+ Utils.toString(format));
+					Log.e(LOG_TAG, "drop track. unsupported format. track:" + i
+							+ ", format:" + Utils.toString(format));
 				}
 			}
 
