@@ -27,6 +27,7 @@ import android.widget.Toast;
 
 import com.lisb.android.mediashrink.DecodeException;
 import com.lisb.android.mediashrink.MediaShrink;
+import com.lisb.android.mediashrink.TooMovieLongException;
 import com.lisb.android.mediashrink.example.R.id;
 import com.lisb.android.mediashrink.example.R.layout;
 
@@ -38,6 +39,7 @@ public class ExampleActivity extends Activity implements OnClickListener,
 	private static final int MAX_WIDTH = 384;
 	private static final int VIDEO_BITRATE = 500 * 1024;
 	private static final int AUDIO_BITRATE = 128 * 1024;
+	private static final long DURATION_LIMIT = 90;
 
 	private static final String EXPORT_DIR = "exports";
 	private static final String EXPORT_FILE = "video.mp4";
@@ -136,7 +138,7 @@ public class ExampleActivity extends Activity implements OnClickListener,
 		}
 		case id.capture_video: {
 			final Intent intent = new Intent(MediaStore.ACTION_VIDEO_CAPTURE);
-			intent.putExtra(MediaStore.EXTRA_DURATION_LIMIT, 90);
+			intent.putExtra(MediaStore.EXTRA_DURATION_LIMIT, DURATION_LIMIT);
 			intent.putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 1);
 			if (intent.resolveActivity(getPackageManager()) != null) {
 				startActivityForResult(intent, RCODE_CAPTURE_VIDEO);
@@ -210,13 +212,11 @@ public class ExampleActivity extends Activity implements OnClickListener,
 				shrink.setMaxWidth(MAX_WIDTH);
 				shrink.setVideoBitRate(VIDEO_BITRATE);
 				shrink.setAudioBitRate(AUDIO_BITRATE);
+				shrink.setDurationLimit(DURATION_LIMIT);
 				try {
 					shrink.shrink(selectedVideoPath, !isSourceFromCamera);
 					return null;
-				} catch (DecodeException e) {
-					Log.e(LOG_TAG, "MediaShrink failed.", e);
-					return e;
-				} catch (IOException e) {
+				} catch (IOException | DecodeException | TooMovieLongException e) {
 					Log.e(LOG_TAG, "MediaShrink failed.", e);
 					return e;
 				}

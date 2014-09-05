@@ -25,7 +25,7 @@ public class MediaShrink {
 	private final Context context;
 
 	private int maxWidth = -1;
-	private long maxLength = -1;
+	private long durationLimit = -1;
 	private int audioBitRate;
 	private int videoBitRate;
 	private String output;
@@ -55,11 +55,7 @@ public class MediaShrink {
 	}
 
 	public void shrink(final Uri src, final boolean checkSource)
-			throws IOException, DecodeException {
-		if (checkSource) {
-			checkDecodable(src);
-		}
-
+			throws IOException, DecodeException, TooMovieLongException {
 		MediaExtractor extractor = null;
 		MediaMetadataRetriever metadataRetriever = null;
 		MediaMuxer muxer = null;
@@ -74,9 +70,6 @@ public class MediaShrink {
 			extractor = new MediaExtractor();
 			metadataRetriever = new MediaMetadataRetriever();
 
-			// TODO ビデオが maxLength より長い場合、エラーを返す。
-			// TODO デコードできないビデオやオーディオがあった場合、エラーを返す。
-
 			try {
 				extractor.setDataSource(context, src, null);
 				metadataRetriever.setDataSource(context, src);
@@ -84,6 +77,13 @@ public class MediaShrink {
 				// TODO 多言語化
 				Log.e(LOG_TAG, "Reading input is failed.", e);
 				throw new IOException("指定された動画ファイルの読み込みに失敗しました。", e);
+			}
+
+			checkLength(metadataRetriever);
+
+			// 時間がかかる処理なので checkLength の後に行う
+			if (checkSource) {
+				checkDecodable(src);
 			}
 
 			try {
@@ -243,6 +243,22 @@ public class MediaShrink {
 		}
 	}
 
+	private void checkLength(final MediaMetadataRetriever metadataRetriever)
+			throws TooMovieLongException {
+		if (durationLimit <= 0) {
+			return;
+		}
+		
+		final long durationSec = Long.valueOf(metadataRetriever
+				.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)) / 1000;
+		if (durationSec > durationLimit) {
+			Log.e(LOG_TAG, "movie duration (" + durationSec
+					+ " sec)is longer than duration limit(" + durationLimit + " sec). ");
+			throw new TooMovieLongException("movie duration (" + durationSec
+					+ " sec)is longer than duration limit(" + durationLimit + " sec). ");
+		}
+	}
+
 	private boolean isVideoFormat(MediaFormat format) {
 		return format.getString(MediaFormat.KEY_MIME).startsWith("video/");
 	}
@@ -294,11 +310,11 @@ public class MediaShrink {
 	/**
 	 * ビデオの最大の長さ。 この長さを越えるビデオのエンコードは行わない。
 	 * 
-	 * @param maxLength
+	 * @param durationLimit
 	 *            0以下の時、無視される。
 	 */
-	public void setMaxLength(int maxLength) {
-		this.maxLength = maxLength;
+	public void setDurationLimit(long durationLimit) {
+		this.durationLimit = durationLimit;
 	}
 
 }
