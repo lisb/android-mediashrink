@@ -2,6 +2,7 @@ package com.lisb.android.mediashrink;
 
 import java.io.File;
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicReference;
 
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
@@ -22,7 +23,8 @@ public class VideoShrink {
 	private static final String CODEC = "video/avc";
 	private static final long TIMEOUT_USEC = 250;
 	private static final int I_FRAME_INTERVAL = 5;
-	private static final float FRAMERATE = 30f;
+	private static final float DEFAULT_FRAMERATE = 30f;
+	private static final float MIN_FRAMERATE = DEFAULT_FRAMERATE / 3;
 
 	private static final String SNAPSHOT_FILE_PREFIX = "android-videoshrink-snapshot";
 	private static final String SNAPSHOT_FILE_EXTENSION = "jpg";
@@ -36,6 +38,8 @@ public class VideoShrink {
 	private int bitRate;
 	private int maxWidth = -1;
 	private int maxHeight = -1;
+
+	private int frameCount;
 
 	public VideoShrink(final MediaExtractor extractor,
 			final MediaMetadataRetriever retriever, final MediaMuxer muxer) {
@@ -82,18 +86,11 @@ public class VideoShrink {
 	}
 
 	/**
-	 * @return サポートしている形式か否か
-	 */
-	public boolean isSupportFormat(final int trackIndex) {
-		// TODO
-		return true;
-	}
-
-	/**
 	 * エンコーダの設定に使うフォーマットを作成する。 <br/>
 	 * {@link MediaMuxer#addTrack(MediaFormat)} には利用できない。
 	 */
-	private MediaFormat createEncoderConfigurationFormat(MediaFormat origin) {
+	private MediaFormat createEncoderConfigurationFormat(MediaFormat origin)
+			throws DecodeException {
 		final int originWidth;
 		final int originHeight;
 		if (rotation == 90 || rotation == 270) {
@@ -135,7 +132,23 @@ public class VideoShrink {
 
 		// TODO ビットレートが元の値より大きくならないようにする
 		format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
-		format.setFloat(MediaFormat.KEY_FRAME_RATE, FRAMERATE);
+
+		if (frameCount > 0) {
+			final float durationSec = origin.getLong(MediaFormat.KEY_DURATION)
+					/ (1000 * 1000);
+			float frameRate = frameCount / durationSec;
+
+			Log.d(LOG_TAG, "video frame-count:" + frameCount + ", frame-rate:"
+					+ frameRate);
+			if (frameRate < MIN_FRAMERATE) {
+				Log.d(LOG_TAG, "frame rate is too small.");
+				frameRate = MIN_FRAMERATE;
+			}
+
+			format.setFloat(MediaFormat.KEY_FRAME_RATE, frameRate);
+		} else {
+			format.setFloat(MediaFormat.KEY_FRAME_RATE, DEFAULT_FRAMERATE);
+		}
 
 		Log.d(LOG_TAG, "create encoder configuration format:" + format);
 
@@ -155,207 +168,286 @@ public class VideoShrink {
 		}
 	}
 
+	private interface ReencodeListener {
+		/**
+		 * @return if stop or not
+		 */
+		boolean onFrameDecoded(MediaCodec decoder);
+
+		/**
+		 * @return if stop or not
+		 */
+		boolean onEncoderFormatChanged(MediaCodec encoder);
+	}
+
 	@SuppressWarnings("unused")
-	private MediaFormat reencode(final int trackIndex,
-			final Integer newTrackIndex) {
+	private void reencode(final int trackIndex, final Integer newTrackIndex,
+			final boolean doDecode, final boolean doEncode,
+			final ReencodeListener listener) throws DecodeException {
 		final MediaFormat currentFormat = extractor.getTrackFormat(trackIndex);
-		final MediaFormat encoderConfigurationFormat = createEncoderConfigurationFormat(currentFormat);
 
-		final MediaCodec encoder = createEncoder(encoderConfigurationFormat);
-		final InputSurface inputSurface = new InputSurface(
-				encoder.createInputSurface());
-		inputSurface.makeCurrent();
-		encoder.start();
+		MediaCodec encoder = null;
+		MediaCodec decoder = null;
 
-		final OutputSurface outputSurface = new OutputSurface(-rotation);
-		final MediaCodec decoder = createDecoder(currentFormat,
-				outputSurface.getSurface());
-		decoder.start();
+		OutputSurface outputSurface = null;
+		InputSurface inputSurface = null;
 
-		final ByteBuffer[] decoderInputBuffers = decoder.getInputBuffers();
-		final MediaCodec.BufferInfo decoderOutputBufferInfo = new MediaCodec.BufferInfo();
+		ByteBuffer[] decoderInputBuffers = null;
+		ByteBuffer[] encoderOutputBuffers = null;
+		MediaCodec.BufferInfo decoderOutputBufferInfo = null;
+		MediaCodec.BufferInfo encoderOutputBufferInfo = null;
 
-		ByteBuffer[] encoderOutputBuffers = encoder.getOutputBuffers();
-		final MediaCodec.BufferInfo encoderOutputBufferInfo = new MediaCodec.BufferInfo();
-
-		MediaFormat outputFormat = null;
 		boolean extractorDone = false;
 		boolean decoderDone = false;
-		boolean encoderDone = false;
 
-		final SnapshotOptions snapshotOptions;
-		final long snapshotDuration;
+		SnapshotOptions snapshotOptions = null;
+		long snapshotDuration = 0;
 		int snapshotIndex = 0;
-		if (DEBUG) {
-			snapshotOptions = new SnapshotOptions();
-			snapshotOptions.width = encoderConfigurationFormat
-					.getInteger(MediaFormat.KEY_WIDTH);
-			snapshotOptions.height = encoderConfigurationFormat
-					.getInteger(MediaFormat.KEY_HEIGHT);
-			snapshotDuration = currentFormat.getLong(MediaFormat.KEY_DURATION)
-					/ NUMBER_OF_SNAPSHOT;
-		} else {
-			snapshotOptions = null;
-			snapshotDuration = 0;
-		}
 
 		try {
-			extractor.selectTrack(trackIndex);
+			if (doEncode) {
+				final MediaFormat encoderConfigurationFormat = createEncoderConfigurationFormat(currentFormat);
+				encoder = createEncoder(encoderConfigurationFormat);
+				inputSurface = new InputSurface(encoder.createInputSurface());
+				inputSurface.makeCurrent();
+				encoder.start();
 
-			while (!encoderDone) {
-				while (!extractorDone) {
-					final int decoderInputBufferIndex = decoder
-							.dequeueInputBuffer(TIMEOUT_USEC);
-					if (decoderInputBufferIndex < 0) {
-						break;
-					}
-					final ByteBuffer decoderInputBuffer = decoderInputBuffers[decoderInputBufferIndex];
-					final int size = extractor.readSampleData(
-							decoderInputBuffer, 0);
+				encoderOutputBufferInfo = new MediaCodec.BufferInfo();
+				encoderOutputBuffers = encoder.getOutputBuffers();
 
-					if (VERBOSE) {
-						Log.v(LOG_TAG,
-								"video extractor output. size:" + size
-										+ ", sample time:"
-										+ extractor.getSampleTime()
-										+ ", sample flags:"
-										+ extractor.getSampleFlags());
+				if (doDecode) {
+					if (DEBUG) {
+						snapshotOptions = new SnapshotOptions();
+						snapshotOptions.width = encoderConfigurationFormat
+								.getInteger(MediaFormat.KEY_WIDTH);
+						snapshotOptions.height = encoderConfigurationFormat
+								.getInteger(MediaFormat.KEY_HEIGHT);
+						snapshotDuration = currentFormat
+								.getLong(MediaFormat.KEY_DURATION)
+								/ NUMBER_OF_SNAPSHOT;
+					} else {
+						snapshotOptions = null;
+						snapshotDuration = 0;
 					}
+				}
+			}
 
-					if (size >= 0) {
-						decoder.queueInputBuffer(decoderInputBufferIndex, 0,
-								size, extractor.getSampleTime(),
-								extractor.getSampleFlags());
+			if (doDecode) {
+				if (doEncode) {
+					outputSurface = new OutputSurface(-rotation);
+					decoder = createDecoder(currentFormat,
+							outputSurface.getSurface());
+					if (decoder == null) {
+						Log.e(LOG_TAG, "decoder not found.");
+						throw new DecodeException("decoder not found.");
 					}
-					extractorDone = !extractor.advance();
-					if (extractorDone) {
-						Log.d(LOG_TAG, "video extractor: EOS");
-						decoder.queueInputBuffer(decoderInputBufferIndex, 0, 0,
-								0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-					}
-					break;
+				} else {
+					decoder = createDecoder(currentFormat, null);
 				}
 
-				while (!decoderDone) {
-					int decoderOutputBufferIndex = decoder.dequeueOutputBuffer(
-							decoderOutputBufferInfo, TIMEOUT_USEC);
+				decoder.start();
 
-					if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-						Log.d(LOG_TAG, "video decoder: output format changed. "
-								+ decoder.getOutputFormat());
-					}
+				decoderInputBuffers = decoder.getInputBuffers();
+				decoderOutputBufferInfo = new MediaCodec.BufferInfo();
 
-					if (decoderOutputBufferIndex < 0) {
+				extractor.selectTrack(trackIndex);
+			}
+
+			while (true) {
+
+				if (doDecode) {
+					while (!extractorDone) {
+						final int decoderInputBufferIndex = decoder
+								.dequeueInputBuffer(TIMEOUT_USEC);
+						if (decoderInputBufferIndex < 0) {
+							break;
+						}
+						final ByteBuffer decoderInputBuffer = decoderInputBuffers[decoderInputBufferIndex];
+						final int size = extractor.readSampleData(
+								decoderInputBuffer, 0);
+
+						if (VERBOSE) {
+							Log.v(LOG_TAG,
+									"video extractor output. size:" + size
+											+ ", sample time:"
+											+ extractor.getSampleTime()
+											+ ", sample flags:"
+											+ extractor.getSampleFlags());
+						}
+
+						if (size >= 0) {
+							decoder.queueInputBuffer(decoderInputBufferIndex,
+									0, size, extractor.getSampleTime(),
+									extractor.getSampleFlags());
+						}
+						extractorDone = !extractor.advance();
+						if (extractorDone) {
+							Log.d(LOG_TAG, "video extractor: EOS");
+							decoder.queueInputBuffer(decoderInputBufferIndex,
+									0, 0, 0,
+									MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+						}
 						break;
 					}
 
-					if (VERBOSE) {
-						Log.v(LOG_TAG, "video decoder output. time:"
-								+ decoderOutputBufferInfo.presentationTimeUs
-								+ ", offset:" + decoderOutputBufferInfo.offset
-								+ ", size:" + decoderOutputBufferInfo.size
-								+ ", flag:" + decoderOutputBufferInfo.flags);
-					}
+					while (!decoderDone) {
+						int decoderOutputBufferIndex = decoder
+								.dequeueOutputBuffer(decoderOutputBufferInfo,
+										TIMEOUT_USEC);
 
-					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+						if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+							Log.d(LOG_TAG,
+									"video decoder: output format changed. "
+											+ decoder.getOutputFormat());
+						}
+
+						if (decoderOutputBufferIndex < 0) {
+							break;
+						}
+
+						if (VERBOSE) {
+							Log.v(LOG_TAG,
+									"video decoder output. time:"
+											+ decoderOutputBufferInfo.presentationTimeUs
+											+ ", offset:"
+											+ decoderOutputBufferInfo.offset
+											+ ", size:"
+											+ decoderOutputBufferInfo.size
+											+ ", flag:"
+											+ decoderOutputBufferInfo.flags);
+						}
+
+						if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+							decoder.releaseOutputBuffer(
+									decoderOutputBufferIndex, false);
+							break;
+						}
+
+						final boolean render = doEncode
+								&& decoderOutputBufferInfo.size != 0;
 						decoder.releaseOutputBuffer(decoderOutputBufferIndex,
-								false);
-						break;
-					}
-					final boolean render = decoderOutputBufferInfo.size != 0;
-					decoder.releaseOutputBuffer(decoderOutputBufferIndex,
-							render);
-					if (render) {
-						if (DEBUG
-								&& snapshotIndex * snapshotDuration <= decoderOutputBufferInfo.presentationTimeUs) {
-							snapshotOptions.file = getSnapshotFile(
-									snapshotIndex,
-									decoderOutputBufferInfo.presentationTimeUs);
-							outputSurface.drawNewImage(snapshotOptions);
-							snapshotIndex++;
-						} else {
-							outputSurface.drawNewImage(null);
+								render);
+
+						if (decoderOutputBufferInfo.size != 0
+								&& listener != null) {
+							if (listener.onFrameDecoded(decoder)) {
+								return;
+							}
 						}
 
-						inputSurface
-								.setPresentationTime(decoderOutputBufferInfo.presentationTimeUs * 1000);
-						inputSurface.swapBuffers();
+						if (render) {
+							if (DEBUG
+									&& snapshotIndex * snapshotDuration <= decoderOutputBufferInfo.presentationTimeUs) {
+								snapshotOptions.file = getSnapshotFile(
+										snapshotIndex,
+										decoderOutputBufferInfo.presentationTimeUs);
+								outputSurface.drawNewImage(snapshotOptions);
+								snapshotIndex++;
+							} else {
+								outputSurface.drawNewImage(null);
+							}
+
+							inputSurface
+									.setPresentationTime(decoderOutputBufferInfo.presentationTimeUs * 1000);
+							inputSurface.swapBuffers();
+						}
+
+						if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+							Log.d(LOG_TAG, "video decoder: EOS");
+							decoderDone = true;
+
+							if (doEncode) {
+								encoder.signalEndOfInputStream();
+							} else {
+								return;
+							}
+						}
+
+						break;
 					}
-					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-						Log.d(LOG_TAG, "video decoder: EOS");
-						decoderDone = true;
-						encoder.signalEndOfInputStream();
-					}
-					break;
 				}
 
-				while (!encoderDone) {
-					final int encoderOutputBufferIndex = encoder
-							.dequeueOutputBuffer(encoderOutputBufferInfo,
-									TIMEOUT_USEC);
-					if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
-						Log.d(LOG_TAG, "video encoder: output buffers changed");
-						encoderOutputBuffers = encoder.getOutputBuffers();
-						break;
-					}
-					if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-						outputFormat = encoder.getOutputFormat();
-						Log.d(LOG_TAG, "video encoder: output format changed. "
-								+ outputFormat);
-						if (newTrackIndex == null) {
-							return outputFormat;
+				if (doEncode) {
+					while (true) {
+						final int encoderOutputBufferIndex = encoder
+								.dequeueOutputBuffer(encoderOutputBufferInfo,
+										TIMEOUT_USEC);
+						if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
+							Log.d(LOG_TAG,
+									"video encoder: output buffers changed");
+							encoderOutputBuffers = encoder.getOutputBuffers();
+							break;
 						}
-						break;
-					}
+						if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+							if (listener != null) {
+								if (listener.onEncoderFormatChanged(encoder)) {
+									return;
+								}
+							}
 
-					if (encoderOutputBufferIndex < 0) {
-						break;
-					}
+							break;
+						}
 
-					if (outputFormat == null) {
-						Log.e(LOG_TAG, "Can't create new video format.");
-						throw new RuntimeException(
-								"Can't create new video format.");
-					}
+						if (encoderOutputBufferIndex < 0) {
+							break;
+						}
 
-					final ByteBuffer encoderOutputBuffer = encoderOutputBuffers[encoderOutputBufferIndex];
+						final ByteBuffer encoderOutputBuffer = encoderOutputBuffers[encoderOutputBufferIndex];
 
-					if (VERBOSE) {
-						Log.v(LOG_TAG, "video encoder output. time:"
-								+ encoderOutputBufferInfo.presentationTimeUs
-								+ ", offset:" + encoderOutputBufferInfo.offset
-								+ ", size:" + encoderOutputBufferInfo.size
-								+ ", flag:" + encoderOutputBufferInfo.flags);
-					}
+						if (VERBOSE) {
+							Log.v(LOG_TAG,
+									"video encoder output. time:"
+											+ encoderOutputBufferInfo.presentationTimeUs
+											+ ", offset:"
+											+ encoderOutputBufferInfo.offset
+											+ ", size:"
+											+ encoderOutputBufferInfo.size
+											+ ", flag:"
+											+ encoderOutputBufferInfo.flags);
+						}
 
-					if ((encoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+						if ((encoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+							encoder.releaseOutputBuffer(
+									encoderOutputBufferIndex, false);
+							break;
+						}
+						if (encoderOutputBufferInfo.size != 0) {
+							muxer.writeSampleData(newTrackIndex,
+									encoderOutputBuffer,
+									encoderOutputBufferInfo);
+						}
+						if ((encoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+							Log.d(LOG_TAG, "video encoder: EOS");
+							return;
+						}
 						encoder.releaseOutputBuffer(encoderOutputBufferIndex,
 								false);
 						break;
 					}
-					if (encoderOutputBufferInfo.size != 0) {
-						muxer.writeSampleData(newTrackIndex,
-								encoderOutputBuffer, encoderOutputBufferInfo);
-					}
-					if ((encoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-						Log.d(LOG_TAG, "video encoder: EOS");
-						encoderDone = true;
-					}
-					encoder.releaseOutputBuffer(encoderOutputBufferIndex, false);
-					break;
 				}
 			}
-
-			return outputFormat;
 		} finally {
-			encoder.stop();
-			encoder.release();
-			inputSurface.release();
-			decoder.stop();
-			decoder.release();
-			outputSurface.release();
+			if (encoder != null) {
+				encoder.stop();
+				encoder.release();
+			}
 
-			extractor.unselectTrack(trackIndex);
+			if (inputSurface != null) {
+				inputSurface.release();
+			}
+
+			if (decoder != null) {
+				decoder.stop();
+				decoder.release();
+			}
+
+			if (outputSurface != null) {
+				outputSurface.release();
+			}
+
+			if (doDecode) {
+				extractor.unselectTrack(trackIndex);
+			}
 		}
 	}
 
@@ -365,21 +457,61 @@ public class VideoShrink {
 						/ 1000 + "." + SNAPSHOT_FILE_EXTENSION);
 	}
 
-	public MediaFormat createOutputFormat(final int trackIndex) {
-		return reencode(trackIndex, null);
+	public MediaFormat createOutputFormat(final int trackIndex)
+			throws DecodeException {
+		frameCount = 0;
+		reencode(trackIndex, null, true, false, new ReencodeListener() {
+			@Override
+			public boolean onFrameDecoded(MediaCodec decoder) {
+				frameCount++;
+				return false;
+			}
+
+			@Override
+			public boolean onEncoderFormatChanged(MediaCodec encoder) {
+				return false;
+			}
+		});
+
+		if (frameCount == 0) {
+			Log.e(LOG_TAG, "no frame found.");
+			throw new DecodeException("no frame found.");
+		}
+
+		final AtomicReference<MediaFormat> formatRef = new AtomicReference<>();
+		reencode(trackIndex, null, false, true, new ReencodeListener() {
+			@Override
+			public boolean onFrameDecoded(MediaCodec decoder) {
+				return false;
+			}
+
+			@Override
+			public boolean onEncoderFormatChanged(MediaCodec encoder) {
+				Log.d(LOG_TAG, "video encoder: output format changed. "
+						+ encoder.getOutputFormat());
+				formatRef.set(encoder.getOutputFormat());
+				return true;
+			}
+		});
+
+		return formatRef.get();
 	}
 
-	public void shrink(final int trackIndex, final int newTrackIndex) {
-		reencode(trackIndex, newTrackIndex);
+	public void shrink(final int trackIndex, final int newTrackIndex)
+			throws DecodeException {
+		reencode(trackIndex, newTrackIndex, true, true, null);
 	}
 
 	private MediaCodec createDecoder(final MediaFormat format,
 			final Surface surface) {
-		final MediaCodec decoder = MediaCodec.createDecoderByType(format
-				.getString(MediaFormat.KEY_MIME));
-		decoder.configure(format, surface, null, 0);
+		final MediaCodec decoder = MediaCodec.createByCodecName(Utils
+				.selectCodec(format.getString(MediaFormat.KEY_MIME), false)
+				.getName());
+		if (decoder != null) {
+			decoder.configure(format, surface, null, 0);
 
-		Log.d(LOG_TAG, "video decoder:" + decoder.getName());
+			Log.d(LOG_TAG, "video decoder:" + decoder.getName());
+		}
 		return decoder;
 	}
 
