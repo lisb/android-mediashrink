@@ -183,8 +183,7 @@ public class MediaShrink {
 		final MediaPlayer player = new MediaPlayer();
 		final Object lock = new Object();
 		final AtomicReference<Boolean> successRef = new AtomicReference<Boolean>(
-				false);
-
+				null);
 		final int[] textures = new int[1];
 		GLES20.glGenTextures(1, textures, 0);
 		final SurfaceTexture surfaceTexture = new SurfaceTexture(textures[0]);
@@ -200,7 +199,7 @@ public class MediaShrink {
 				public boolean onError(MediaPlayer mp, int what, int extra) {
 					Log.e(LOG_TAG, "fail to play on MediaPlayer.");
 					synchronized (lock) {
-						player.stop();
+						successRef.set(false);
 						lock.notifyAll();
 					}
 					return true;
@@ -210,9 +209,8 @@ public class MediaShrink {
 				@Override
 				public void onCompletion(MediaPlayer mp) {
 					Log.d(LOG_TAG, "complete to play on MediaPlayer.");
-					successRef.set(true);
 					synchronized (lock) {
-						player.stop();
+						successRef.set(true);
 						lock.notifyAll();
 					}
 				}
@@ -220,15 +218,19 @@ public class MediaShrink {
 
 			player.prepare();
 			player.start();
-
-			while (player.isPlaying()) {
-				try {
-					synchronized (lock) {
+			
+			synchronized (lock) {
+				while (successRef.get() == null) {
+					try {
 						lock.wait();
+					} catch (InterruptedException e) {
+						Log.e(LOG_TAG, "player lock is interrupted.", e);
 					}
-				} catch (InterruptedException e) {
-					Log.e(LOG_TAG, "player lock is interrupted.", e);
 				}
+			}
+			
+			if (player.isPlaying()) {
+				player.stop();
 			}
 
 			if (!successRef.get()) {
@@ -248,14 +250,16 @@ public class MediaShrink {
 		if (durationLimit <= 0) {
 			return;
 		}
-		
+
 		final long durationSec = Long.valueOf(metadataRetriever
 				.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)) / 1000;
 		if (durationSec > durationLimit) {
 			Log.e(LOG_TAG, "movie duration (" + durationSec
-					+ " sec)is longer than duration limit(" + durationLimit + " sec). ");
+					+ " sec)is longer than duration limit(" + durationLimit
+					+ " sec). ");
 			throw new TooMovieLongException("movie duration (" + durationSec
-					+ " sec)is longer than duration limit(" + durationLimit + " sec). ");
+					+ " sec)is longer than duration limit(" + durationLimit
+					+ " sec). ");
 		}
 	}
 
