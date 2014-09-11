@@ -218,7 +218,7 @@ public class MediaShrink {
 
 			player.prepare();
 			player.start();
-			
+
 			synchronized (lock) {
 				while (successRef.get() == null) {
 					try {
@@ -228,7 +228,7 @@ public class MediaShrink {
 					}
 				}
 			}
-			
+
 			if (player.isPlaying()) {
 				player.stop();
 			}
@@ -237,7 +237,9 @@ public class MediaShrink {
 				throw new DecodeException("These movie is not decodable.");
 			}
 		} finally {
-			player.stop();
+			if (player.isPlaying()) {
+				player.stop();
+			}
 			player.release();
 
 			surface.release();
