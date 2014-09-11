@@ -16,12 +16,16 @@ import android.net.Uri;
 import android.opengl.GLES20;
 import android.os.Build;
 import android.util.Log;
-import android.util.SparseIntArray;
 import android.view.Surface;
 
 public class MediaShrink {
 
 	private static final String LOG_TAG = MediaShrink.class.getSimpleName();
+
+	private static final int PROGRESS_DECODABLE_CHECKED = 50;
+	private static final int PROGRESS_ADD_TRACK = 10;
+	private static final int PROGRESS_WRITE_CONTENT = 40;
+
 	private final Context context;
 
 	private int maxWidth = -1;
@@ -29,6 +33,7 @@ public class MediaShrink {
 	private int audioBitRate;
 	private int videoBitRate;
 	private String output;
+	private OnProgressListener onProgressListener;
 
 	public static boolean isSupportedDevice(final Context context) {
 		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR2) {
@@ -81,9 +86,49 @@ public class MediaShrink {
 
 			checkLength(metadataRetriever);
 
-			// 時間がかかる処理なので checkLength の後に行う
+			int maxProgress = 0;
+			int progress = 0;
+
+			// プログレスの計算のため、圧縮するトラックの数を前もって数える
+			Integer videoTrack = null;
+			Integer audioTrack = null;
+			for (int i = 0, length = extractor.getTrackCount(); i < length; i++) {
+				final MediaFormat format = extractor.getTrackFormat(i);
+				Log.d(LOG_TAG,
+						"track [" + i + "] format: " + Utils.toString(format));
+				if (isVideoFormat(format)) {
+					if (videoTrack != null) {
+						// MediaMuxer がビデオ、オーディオそれぞれ1つずつしか含めることができないため。
+						Log.w(LOG_TAG,
+								"drop track. support one video track only. track:"
+										+ i);
+						continue;
+					}
+					videoTrack = i;
+					maxProgress += PROGRESS_ADD_TRACK + PROGRESS_WRITE_CONTENT;
+				} else if (isAudioFormat(format)) {
+					if (audioTrack != null) {
+						// MediaMuxer がビデオ、オーディオそれぞれ1つずつしか含めることができないため。
+						Log.w(LOG_TAG,
+								"drop track. support one audio track only. track:"
+										+ i);
+						continue;
+					}
+					audioTrack = i;
+					maxProgress += PROGRESS_ADD_TRACK + PROGRESS_WRITE_CONTENT;
+				} else {
+					Log.e(LOG_TAG, "drop track. unsupported format. track:" + i
+							+ ", format:" + Utils.toString(format));
+				}
+			}
+
 			if (checkSource) {
+				// 時間がかかる処理なので checkLength の後に行う
 				checkDecodable(src);
+
+				maxProgress += PROGRESS_DECODABLE_CHECKED;
+				progress += PROGRESS_DECODABLE_CHECKED;
+				deliverProgress(progress, maxProgress);
 			}
 
 			try {
@@ -96,58 +141,45 @@ public class MediaShrink {
 			}
 
 			// トラックの作成。
-			final SparseIntArray trackMap = new SparseIntArray(2);
-			for (int i = 0, length = extractor.getTrackCount(); i < length; i++) {
-				final MediaFormat format = extractor.getTrackFormat(i);
-				Log.d(LOG_TAG,
-						"track [" + i + "] format: " + Utils.toString(format));
-				if (isVideoFormat(format)) {
-					if (videoShrink != null) {
-						// MediaMuxer がビデオ、オーディオそれぞれ1つずつしか含めることができないため。
-						Log.w(LOG_TAG,
-								"drop track. support one video track only. track:"
-										+ i);
-						continue;
-					}
-					videoShrink = new VideoShrink(extractor, metadataRetriever,
-							muxer);
-					videoShrink.setMaxWidth(maxWidth);
-					videoShrink.setBitRate(videoBitRate);
-					final int newVideoTrack = muxer.addTrack(videoShrink
-							.createOutputFormat(i));
-					trackMap.put(i, newVideoTrack);
-				} else if (isAudioFormat(format)) {
-					if (audioShrink != null) {
-						// MediaMuxer がビデオ、オーディオそれぞれ1つずつしか含めることができないため。
-						Log.w(LOG_TAG,
-								"drop track. support one audio track only. track:"
-										+ i);
-						continue;
-					}
+			Integer newVideoTrack = null;
+			if (videoTrack != null) {
+				videoShrink = new VideoShrink(extractor, metadataRetriever,
+						muxer);
+				videoShrink.setMaxWidth(maxWidth);
+				videoShrink.setBitRate(videoBitRate);
+				newVideoTrack = muxer.addTrack(videoShrink
+						.createOutputFormat(videoTrack));
 
-					audioShrink = new AudioShrink(extractor, muxer);
-					audioShrink.setBitRate(audioBitRate);
-					final int newAudioTrack = muxer.addTrack(audioShrink
-							.createOutputFormat(i));
-					trackMap.put(i, newAudioTrack);
-				} else {
-					Log.e(LOG_TAG, "drop track. unsupported format. track:" + i
-							+ ", format:" + Utils.toString(format));
-				}
+				progress += PROGRESS_ADD_TRACK;
+				deliverProgress(progress, maxProgress);
+			}
+			Integer newAudioTrack = null;
+			if (audioTrack != null) {
+				audioShrink = new AudioShrink(extractor, muxer);
+				audioShrink.setBitRate(audioBitRate);
+				newAudioTrack = muxer.addTrack(audioShrink
+						.createOutputFormat(audioTrack));
+
+				progress += PROGRESS_ADD_TRACK;
+				deliverProgress(progress, maxProgress);
 			}
 
 			muxer.start();
 
-			// 実際のデータの書き込み
-			for (int i = 0, length = trackMap.size(); i < length; i++) {
-				final int trackIndex = trackMap.keyAt(i);
-				final int newTrackIndex = trackMap.valueAt(i);
-				final MediaFormat format = extractor.getTrackFormat(trackIndex);
-				if (isVideoFormat(format)) {
-					videoShrink.shrink(trackIndex, newTrackIndex);
-				} else if (isAudioFormat(format)) {
-					audioShrink.shrink(trackIndex, newTrackIndex);
-				}
+			// コンテンツの作成
+			if (videoShrink != null) {
+				// TODO ビデオ圧縮の進捗を詳細に取れるようにする
+				videoShrink.shrink(videoTrack, newVideoTrack);
+
+				progress += PROGRESS_WRITE_CONTENT;
+				deliverProgress(progress, maxProgress);
+			}
+			if (audioShrink != null) {
+				// TODO オーディオ圧縮の進捗を詳細に取れるようにする
+				audioShrink.shrink(audioTrack, newAudioTrack);
+
+				progress += PROGRESS_WRITE_CONTENT;
+				deliverProgress(progress, maxProgress);
 			}
 		} catch (RuntimeException e) {
 			Log.e(LOG_TAG, "fail to shrink.", e);
@@ -176,6 +208,12 @@ public class MediaShrink {
 
 		if (re != null) {
 			throw re;
+		}
+	}
+
+	private void deliverProgress(int progress, int maxProgress) {
+		if (onProgressListener != null) {
+			onProgressListener.onProgress(progress * 100 / maxProgress);
 		}
 	}
 
@@ -313,6 +351,10 @@ public class MediaShrink {
 	// this.maxHeight = maxHeight;
 	// }
 
+	public void setOnProgressListener(OnProgressListener listener) {
+		this.onProgressListener = listener;
+	}
+
 	/**
 	 * ビデオの最大の長さ。 この長さを越えるビデオのエンコードは行わない。
 	 * 
@@ -323,4 +365,7 @@ public class MediaShrink {
 		this.durationLimit = durationLimit;
 	}
 
+	public interface OnProgressListener {
+		void onProgress(int progress);
+	}
 }
