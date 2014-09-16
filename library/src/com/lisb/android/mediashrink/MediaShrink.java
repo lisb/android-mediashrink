@@ -26,6 +26,8 @@ public class MediaShrink {
 	private static final int PROGRESS_ADD_TRACK = 10;
 	private static final int PROGRESS_WRITE_CONTENT = 40;
 
+	private static final long UPDATE_CHECK_DECODABLE_PROGRESS_INTERVAL_MS = 3 * 1000;
+
 	private final Context context;
 
 	private int maxWidth = -1;
@@ -124,11 +126,9 @@ public class MediaShrink {
 
 			if (checkSource) {
 				// 時間がかかる処理なので checkLength の後に行う
-				checkDecodable(src);
-
 				maxProgress += PROGRESS_DECODABLE_CHECKED;
+				checkDecodable(src, maxProgress);
 				progress += PROGRESS_DECODABLE_CHECKED;
-				deliverProgress(progress, maxProgress);
 			}
 
 			try {
@@ -217,7 +217,8 @@ public class MediaShrink {
 		}
 	}
 
-	private void checkDecodable(Uri uri) throws IOException, DecodeException {
+	private void checkDecodable(final Uri uri, final int maxProgress)
+			throws IOException, DecodeException {
 		final MediaPlayer player = new MediaPlayer();
 		final Object lock = new Object();
 		final AtomicReference<Boolean> successRef = new AtomicReference<Boolean>(
@@ -260,7 +261,13 @@ public class MediaShrink {
 			synchronized (lock) {
 				while (successRef.get() == null) {
 					try {
-						lock.wait();
+						lock.wait(UPDATE_CHECK_DECODABLE_PROGRESS_INTERVAL_MS);
+						if (player.isPlaying()) {
+							deliverProgress(
+									player.getCurrentPosition()
+											* PROGRESS_DECODABLE_CHECKED
+											/ player.getDuration(), maxProgress);
+						}
 					} catch (InterruptedException e) {
 						Log.e(LOG_TAG, "player lock is interrupted.", e);
 					}
