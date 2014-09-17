@@ -41,6 +41,10 @@ public class VideoShrink {
 
 	private int frameCount;
 
+	private OnProgressListener onProgressListener;
+
+	private static final long UPDATE_PROGRESS_INTERVAL_MS = 3 * 1000;
+
 	public VideoShrink(final MediaExtractor extractor,
 			final MediaMetadataRetriever retriever, final MediaMuxer muxer) {
 		this.extractor = extractor;
@@ -83,6 +87,10 @@ public class VideoShrink {
 
 	public void setBitRate(int bitRate) {
 		this.bitRate = bitRate;
+	}
+
+	public void setOnProgressListener(OnProgressListener onProgressListener) {
+		this.onProgressListener = onProgressListener;
 	}
 
 	/**
@@ -202,6 +210,12 @@ public class VideoShrink {
 		SnapshotOptions snapshotOptions = null;
 		long snapshotDuration = 0;
 		int snapshotIndex = 0;
+
+		// 進捗取得に利用
+		final float durationUs = currentFormat
+				.getLong(MediaFormat.KEY_DURATION);
+		final long startTimeNs = System.nanoTime();
+		long deliverProgressCount = 0;
 
 		try {
 			final MediaFormat encoderConfigurationFormat = createEncoderConfigurationFormat(currentFormat);
@@ -381,6 +395,16 @@ public class VideoShrink {
 							muxer.writeSampleData(newTrackIndex,
 									encoderOutputBuffer,
 									encoderOutputBufferInfo);
+
+							// 進捗更新
+							if ((System.nanoTime() - startTimeNs) / 1000 / 1000 > UPDATE_PROGRESS_INTERVAL_MS
+									* (deliverProgressCount + 1)) {
+								deliverProgressCount++;
+								if (onProgressListener != null) {
+									onProgressListener
+											.onProgress((int) (encoderOutputBufferInfo.presentationTimeUs * 100 / durationUs));
+								}
+							}
 						}
 					}
 					if ((encoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {

@@ -168,14 +168,34 @@ public class MediaShrink {
 
 			// コンテンツの作成
 			if (videoShrink != null) {
-				// TODO ビデオ圧縮の進捗を詳細に取れるようにする
+				// ビデオ圧縮の進捗を詳細に取れるようにする
+				final int currentProgress = progress;
+				final int currentMaxProgress = maxProgress;
+				videoShrink.setOnProgressListener(new OnProgressListener() {
+					@Override
+					public void onProgress(int progress) {
+						deliverProgress(currentProgress + progress
+								* PROGRESS_WRITE_CONTENT / 100,
+								currentMaxProgress);
+					}
+				});
 				videoShrink.shrink(videoTrack, newVideoTrack);
 
 				progress += PROGRESS_WRITE_CONTENT;
 				deliverProgress(progress, maxProgress);
 			}
 			if (audioShrink != null) {
-				// TODO オーディオ圧縮の進捗を詳細に取れるようにする
+				// オーディオ圧縮の進捗を詳細に取れるようにする
+				final int currentProgress = progress;
+				final int currentMaxProgress = maxProgress;
+				audioShrink.setOnProgressListener(new OnProgressListener() {
+					@Override
+					public void onProgress(int progress) {
+						deliverProgress(currentProgress + progress
+								* PROGRESS_WRITE_CONTENT / 100,
+								currentMaxProgress);
+					}
+				});
 				audioShrink.shrink(audioTrack, newAudioTrack);
 
 				progress += PROGRESS_WRITE_CONTENT;
@@ -370,9 +390,5 @@ public class MediaShrink {
 	 */
 	public void setDurationLimit(long durationLimit) {
 		this.durationLimit = durationLimit;
-	}
-
-	public interface OnProgressListener {
-		void onProgress(int progress);
 	}
 }

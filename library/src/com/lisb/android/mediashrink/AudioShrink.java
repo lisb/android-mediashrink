@@ -25,6 +25,10 @@ public class AudioShrink {
 
 	private int sampleCount;
 
+	private OnProgressListener onProgressListener;
+
+	private static final long UPDATE_PROGRESS_INTERVAL_MS = 3 * 1000;
+
 	public AudioShrink(MediaExtractor extractor, MediaMuxer muxer) {
 		this.extractor = extractor;
 		this.muxer = muxer;
@@ -32,6 +36,10 @@ public class AudioShrink {
 
 	public void setBitRate(int bitRate) {
 		this.bitRate = bitRate;
+	}
+
+	public void setOnProgressListener(OnProgressListener onProgressListener) {
+		this.onProgressListener = onProgressListener;
 	}
 
 	/**
@@ -51,18 +59,6 @@ public class AudioShrink {
 		return format;
 	}
 
-	private interface ReencodeListener {
-		/**
-		 * @return if stop or not
-		 */
-		boolean onFrameDecoded(MediaCodec decoder);
-
-		/**
-		 * @return if stop or not
-		 */
-		boolean onEncoderFormatChanged(MediaCodec encoder);
-	}
-
 	private void reencode(final int trackIndex, final Integer newTrackIndex,
 			final ReencodeListener listener) throws DecodeException {
 		final MediaFormat currentFormat = extractor.getTrackFormat(trackIndex);
@@ -78,6 +74,12 @@ public class AudioShrink {
 		ByteBuffer[] encoderInputBuffers = null;
 		ByteBuffer[] encoderOutputBuffers = null;
 		MediaCodec.BufferInfo encoderOutputBufferInfo = null;
+
+		// 進捗取得に利用
+		final float durationUs = currentFormat
+				.getLong(MediaFormat.KEY_DURATION);
+		final long startTimeNs = System.nanoTime();
+		long deliverProgressCount = 0;
 
 		try {
 			encoder = createEncoder(encoderConfigurationFormat);
@@ -279,6 +281,16 @@ public class AudioShrink {
 										encoderOutputBuffer,
 										encoderOutputBufferInfo);
 								lastEncoderOutputPts = pts;
+
+								// 進捗更新
+								if ((System.nanoTime() - startTimeNs) / 1000 / 1000 > UPDATE_PROGRESS_INTERVAL_MS
+										* (deliverProgressCount + 1)) {
+									deliverProgressCount++;
+									if (onProgressListener != null) {
+										onProgressListener
+												.onProgress((int) (encoderOutputBufferInfo.presentationTimeUs * 100 / durationUs));
+									}
+								}
 							}
 						}
 					}
@@ -356,6 +368,18 @@ public class AudioShrink {
 		encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
 		Log.d(LOG_TAG, "audio encoder:" + encoder.getName());
 		return encoder;
+	}
+
+	private interface ReencodeListener {
+		/**
+		 * @return if stop or not
+		 */
+		boolean onFrameDecoded(MediaCodec decoder);
+
+		/**
+		 * @return if stop or not
+		 */
+		boolean onEncoderFormatChanged(MediaCodec encoder);
 	}
 
 }
