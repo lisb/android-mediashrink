@@ -161,6 +161,12 @@ public class AudioShrink {
 						decoderOutputBuffers = decoder.getOutputBuffers();
 						break;
 					}
+					if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+						Log.d(LOG_TAG, "audio decoder: output format changed. "
+								+ Utils.toString(decoder.getOutputFormat()));
+						break;
+					}
+
 					if (decoderOutputBufferIndex < 0) {
 						break;
 					}
@@ -330,8 +336,9 @@ public class AudioShrink {
 
 			@Override
 			public boolean onEncoderFormatChanged(MediaCodec encoder) {
-				Log.d(LOG_TAG, "audio encoder: output format changed. "
-						+ encoder.getOutputFormat());
+				Log.d(LOG_TAG,
+						"audio encoder: output format changed. "
+								+ Utils.toString(encoder.getOutputFormat()));
 				formatRef.set(encoder.getOutputFormat());
 				return false;
 			}

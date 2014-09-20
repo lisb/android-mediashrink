@@ -294,7 +294,7 @@ public class VideoShrink {
 
 					if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
 						Log.d(LOG_TAG, "video decoder: output format changed. "
-								+ decoder.getOutputFormat());
+								+ Utils.toString(decoder.getOutputFormat()));
 					}
 
 					if (decoderOutputBufferIndex < 0) {
@@ -457,8 +457,9 @@ public class VideoShrink {
 
 			@Override
 			public boolean onEncoderFormatChanged(MediaCodec encoder) {
-				Log.d(LOG_TAG, "video encoder: output format changed. "
-						+ encoder.getOutputFormat());
+				Log.d(LOG_TAG,
+						"video encoder: output format changed. "
+								+ Utils.toString(encoder.getOutputFormat()));
 				formatRef.set(encoder.getOutputFormat());
 				return false;
 			}
