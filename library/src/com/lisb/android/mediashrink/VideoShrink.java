@@ -142,8 +142,8 @@ public class VideoShrink {
 		format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
 
 		if (frameCount > 0) {
-			final float durationSec = origin.getLong(MediaFormat.KEY_DURATION)
-					/ (1000 * 1000);
+			final float durationSec = (float) origin
+					.getLong(MediaFormat.KEY_DURATION) / (1000 * 1000);
 			float frameRate = frameCount / durationSec;
 
 			Log.d(LOG_TAG, "video frame-count:" + frameCount + ", frame-rate:"
