@@ -17,7 +17,8 @@ public class AudioShrink {
 
 	private static final long TIMEOUT_USEC = 250;
 	private static final String CODEC = "audio/mp4a-latm";
-	private static final int AAC_PROFILE = MediaCodecInfo.CodecProfileLevel.AACObjectHE;
+	private static final int AAC_DEFAULT_PROFILE = MediaCodecInfo.CodecProfileLevel.AACObjectHE;
+	private static final int AAC_SECOND_PROFILE = MediaCodecInfo.CodecProfileLevel.AACObjectLC;
 	private int bitRate;
 
 	private final MediaExtractor extractor;
@@ -47,12 +48,30 @@ public class AudioShrink {
 	 * {@link MediaMuxer#addTrack(MediaFormat)} には利用できない。
 	 */
 	private MediaFormat createEncoderConfigurationFormat(MediaFormat origin) {
+		final int channelCount = origin
+				.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
 		final MediaFormat format = MediaFormat.createAudioFormat(CODEC,
-				origin.getInteger(MediaFormat.KEY_SAMPLE_RATE),
-				origin.getInteger(MediaFormat.KEY_CHANNEL_COUNT));
+				origin.getInteger(MediaFormat.KEY_SAMPLE_RATE), channelCount);
 		// TODO ビットレートが元の値より大きくならないようにする
 		format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
-		format.setInteger(MediaFormat.KEY_AAC_PROFILE, AAC_PROFILE);
+
+		Integer profile = null;
+		// OMX.google.aac.encoder は HE-AAC プロファイルで mono 音声を扱うと
+		// 出力が少しおかしくなりブラウザで再生できなくなる。
+		// ( ffprobe で確認したところ、簡易表示ではチャネル数プロパティが stereo、詳細表示では mono になっている )
+		if (channelCount == 1) {
+			final String mimetype = origin.getString(MediaFormat.KEY_MIME);
+			final MediaCodecInfo encoderInfo = Utils
+					.selectCodec(mimetype, true);
+			if ("OMX.google.aac.encoder".equals(encoderInfo.getName())) {
+				profile = AAC_SECOND_PROFILE;
+			}
+		}
+		if (profile == null) {
+			profile = AAC_DEFAULT_PROFILE;
+		}
+
+		format.setInteger(MediaFormat.KEY_AAC_PROFILE, profile);
 
 		Log.d(LOG_TAG, "create audio encoder configuration format:" + format);
 
