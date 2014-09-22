@@ -23,8 +23,8 @@ public class VideoShrink {
 	private static final String CODEC = "video/avc";
 	private static final long TIMEOUT_USEC = 250;
 	private static final int I_FRAME_INTERVAL = 5;
-	private static final float DEFAULT_FRAMERATE = 30f;
-	private static final float MIN_FRAMERATE = DEFAULT_FRAMERATE / 3;
+	private static final int DEFAULT_FRAMERATE = 30;
+	private static final int MIN_FRAMERATE = DEFAULT_FRAMERATE / 2;
 
 	private static final String SNAPSHOT_FILE_PREFIX = "android-videoshrink-snapshot";
 	private static final String SNAPSHOT_FILE_EXTENSION = "jpg";
@@ -144,7 +144,9 @@ public class VideoShrink {
 		if (frameCount > 0) {
 			final float durationSec = (float) origin
 					.getLong(MediaFormat.KEY_DURATION) / (1000 * 1000);
-			float frameRate = frameCount / durationSec;
+			// Nexus 5 の OMX.qcom.video.encoder.avc では int に四捨五入しないと
+			// MediaCodec#configure で IllegalStateException が飛ぶ。
+			int frameRate = Math.round(frameCount / durationSec);
 
 			Log.d(LOG_TAG, "video frame-count:" + frameCount + ", frame-rate:"
 					+ frameRate);
@@ -152,10 +154,9 @@ public class VideoShrink {
 				Log.d(LOG_TAG, "frame rate is too small.");
 				frameRate = MIN_FRAMERATE;
 			}
-
-			format.setFloat(MediaFormat.KEY_FRAME_RATE, frameRate);
+			format.setInteger(MediaFormat.KEY_FRAME_RATE, frameRate);
 		} else {
-			format.setFloat(MediaFormat.KEY_FRAME_RATE, DEFAULT_FRAMERATE);
+			format.setInteger(MediaFormat.KEY_FRAME_RATE, DEFAULT_FRAMERATE);
 		}
 
 		Log.d(LOG_TAG, "create encoder configuration format:" + format);
