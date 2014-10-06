@@ -15,10 +15,26 @@ import android.media.MediaPlayer.OnErrorListener;
 import android.net.Uri;
 import android.opengl.GLES20;
 import android.os.Build;
+import android.os.Looper;
 import android.util.Log;
 import android.view.Surface;
 
-public class MediaShrink {
+/**
+ * WARN: {@link MediaShrink#shrink(Uri, boolean)} のスレッドについて制約
+ * 
+ * {@link MediaShrink} の呼び出し元のスレッドは {@link Looper} を持たない {@link Thread}
+ * である必要がある。 <br/>
+ * それに加え {@link Looper#getMainLooper()} の {@link Looper} が周り続けている必要がある。<br/>
+ * これらの制約を守らないと圧縮がロックされたままになる。
+ * 
+ * 原因: ビデオの圧縮で利用している {@link SurfaceTexture} のコールバックが呼び出されるスレッドが以下のようになっているので、
+ * 上記の制約を守らないとコールバックが呼び出されない。
+ * <ul>
+ * <li>スレッドが {@link Looper}を保つ場合、そのスレッド</li>
+ * <li>持たない場合、 メインスレッド</li>
+ * </ul>
+ */
+class MediaShrink {
 
 	private static final String LOG_TAG = MediaShrink.class.getSimpleName();
 
@@ -37,7 +53,7 @@ public class MediaShrink {
 	private String output;
 	private OnProgressListener onProgressListener;
 
-	public static boolean isSupportedDevice(final Context context) {
+	static boolean isSupportedDevice(final Context context) {
 		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR2) {
 			return false;
 		}
@@ -49,7 +65,7 @@ public class MediaShrink {
 		return true;
 	}
 
-	public static MediaShrink createMediaShrink(final Context context) {
+	static MediaShrink createMediaShrink(final Context context) {
 		if (!isSupportedDevice(context)) {
 			return null;
 		}

@@ -1,16 +1,19 @@
 package com.lisb.android.mediashrink.example;
 
 import java.io.File;
-import java.io.IOException;
+
+import org.jdeferred.DoneCallback;
+import org.jdeferred.FailCallback;
+import org.jdeferred.Promise;
 
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.Editor;
 import android.net.Uri;
-import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
 import android.preference.PreferenceManager;
 import android.provider.MediaStore;
 import android.util.Log;
@@ -19,20 +22,14 @@ import android.view.ContextMenu.ContextMenuInfo;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.View.OnClickListener;
-import android.widget.CheckBox;
-import android.widget.CompoundButton;
-import android.widget.CompoundButton.OnCheckedChangeListener;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.lisb.android.mediashrink.DecodeException;
-import com.lisb.android.mediashrink.MediaShrink;
-import com.lisb.android.mediashrink.TooMovieLongException;
+import com.lisb.android.mediashrink.MediaShrinkQueue;
 import com.lisb.android.mediashrink.example.R.id;
 import com.lisb.android.mediashrink.example.R.layout;
 
-public class ExampleActivity extends Activity implements OnClickListener,
-		OnCheckedChangeListener {
+public class ExampleActivity extends Activity implements OnClickListener {
 
 	private static final String LOG_TAG = ExampleActivity.class.getSimpleName();
 
@@ -44,7 +41,6 @@ public class ExampleActivity extends Activity implements OnClickListener,
 	private static final String EXPORT_DIR = "exports";
 	private static final String EXPORT_FILE = "video.mp4";
 	private static final String SPREF_SELECTED_FILEPATH = "filepath";
-	private static final String SPREF_SOURCE_FROM_CAMERA = "source_from_camera";
 
 	private static final int RCODE_CAPTURE_VIDEO = 1;
 	private static final int RCODE_SELECT_FROM_GALLARY = 2;
@@ -54,11 +50,9 @@ public class ExampleActivity extends Activity implements OnClickListener,
 	private View btnStartReencoding;
 	private View btnPlaySelectedVideo;
 	private View btnPlayReencodedVideo;
-	private CheckBox chkIsSourceFromCamera;
 
-	private AsyncTask<Void, Void, Exception> reencodeTask;
 	private Uri selectedVideoPath;
-	private boolean isSourceFromCamera;
+	private MediaShrinkQueue mediaShrinkQueue;
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
@@ -83,14 +77,10 @@ public class ExampleActivity extends Activity implements OnClickListener,
 		progress = findViewById(android.R.id.progress);
 		txtSelectedVideoPath = (TextView) findViewById(id.txt_selected_video_path);
 
-		chkIsSourceFromCamera = (CheckBox) findViewById(id.chk_is_source_from_camera);
-		chkIsSourceFromCamera.setOnCheckedChangeListener(this);
-
 		final SharedPreferences prefs = getSharedPreferences();
 		final String filepath = prefs.getString(SPREF_SELECTED_FILEPATH, null);
-		if (filepath != null && prefs.contains(SPREF_SOURCE_FROM_CAMERA)) {
-			onFileSelected(Uri.parse(filepath),
-					prefs.getBoolean(SPREF_SOURCE_FROM_CAMERA, false), false);
+		if (filepath != null) {
+			onFileSelected(Uri.parse(filepath), false);
 		}
 
 		if (getOutput().exists()) {
@@ -109,6 +99,9 @@ public class ExampleActivity extends Activity implements OnClickListener,
 			Toast.makeText(this, "Please mount external storage.",
 					Toast.LENGTH_LONG).show();
 		}
+
+		mediaShrinkQueue = new MediaShrinkQueue(this, new Handler(), MAX_WIDTH,
+				VIDEO_BITRATE, AUDIO_BITRATE, DURATION_LIMIT);
 	}
 
 	@Override
@@ -158,27 +151,21 @@ public class ExampleActivity extends Activity implements OnClickListener,
 		super.onActivityResult(requestCode, resultCode, data);
 		switch (resultCode) {
 		case RESULT_OK:
-			onFileSelected(data.getData(), requestCode == RCODE_CAPTURE_VIDEO,
-					true);
+			onFileSelected(data.getData(), true);
 		}
 	}
 
-	private void onFileSelected(final Uri uri,
-			final boolean isSourceFromCamera, final boolean savePreference) {
+	private void onFileSelected(final Uri uri, final boolean savePreference) {
 		this.selectedVideoPath = uri;
-		this.isSourceFromCamera = isSourceFromCamera;
 
 		if (uri != null) {
 			txtSelectedVideoPath.setText(uri.toString());
 			btnPlaySelectedVideo.setEnabled(true);
 			btnStartReencoding.setEnabled(true);
-			chkIsSourceFromCamera.setEnabled(true);
-			chkIsSourceFromCamera.setChecked(isSourceFromCamera);
 		} else {
 			txtSelectedVideoPath.setText("");
 			btnPlaySelectedVideo.setEnabled(false);
 			btnStartReencoding.setEnabled(false);
-			chkIsSourceFromCamera.setEnabled(false);
 		}
 
 		if (savePreference) {
@@ -186,7 +173,6 @@ public class ExampleActivity extends Activity implements OnClickListener,
 			if (uri != null) {
 				editor.putString(SPREF_SELECTED_FILEPATH,
 						selectedVideoPath.toString());
-				editor.putBoolean(SPREF_SOURCE_FROM_CAMERA, isSourceFromCamera);
 			} else {
 				editor.remove(SPREF_SELECTED_FILEPATH);
 			}
@@ -198,50 +184,31 @@ public class ExampleActivity extends Activity implements OnClickListener,
 		return PreferenceManager.getDefaultSharedPreferences(this);
 	}
 
-	private void reencode() {
-		assert reencodeTask == null;
-
+	private void shrink() {
 		progress.setVisibility(View.VISIBLE);
-		reencodeTask = new AsyncTask<Void, Void, Exception>() {
+		getOutput().getParentFile().mkdirs();
+		final Promise<Void, Exception, Integer> promise = mediaShrinkQueue
+				.queue(selectedVideoPath, getOutput());
+		promise.then(new DoneCallback<Void>() {
 			@Override
-			protected Exception doInBackground(Void... params) {
-				final MediaShrink shrink = MediaShrink
-						.createMediaShrink(ExampleActivity.this);
-				getOutput().getParentFile().mkdirs();
-				shrink.setOutput(getOutput().getAbsolutePath());
-				shrink.setMaxWidth(MAX_WIDTH);
-				shrink.setVideoBitRate(VIDEO_BITRATE);
-				shrink.setAudioBitRate(AUDIO_BITRATE);
-				shrink.setDurationLimit(DURATION_LIMIT);
-				try {
-					shrink.shrink(selectedVideoPath, !isSourceFromCamera);
-					return null;
-				} catch (IOException | DecodeException | TooMovieLongException e) {
-					Log.e(LOG_TAG, "MediaShrink failed.", e);
-					return e;
-				}
-			}
-
-			@Override
-			protected void onPostExecute(Exception result) {
-				super.onPostExecute(result);
-				reencodeTask = null;
+			public void onDone(Void result) {
 				progress.setVisibility(View.GONE);
-
-				if (result != null) {
-					getOutput().delete();
-					btnPlayReencodedVideo.setEnabled(false);
-					Toast.makeText(ExampleActivity.this, result.getMessage(),
-							Toast.LENGTH_SHORT).show();
-				} else {
-					btnPlayReencodedVideo.setEnabled(true);
-					Toast.makeText(ExampleActivity.this, "Success!",
-							Toast.LENGTH_SHORT).show();
-				}
+				btnPlayReencodedVideo.setEnabled(true);
+				Toast.makeText(ExampleActivity.this, "Success!",
+						Toast.LENGTH_SHORT).show();
 			}
-		};
+		}).fail(new FailCallback<Exception>() {
+			@Override
+			public void onFail(Exception result) {
+				Log.e(LOG_TAG, "fail to shrink media.", result);
 
-		reencodeTask.execute();
+				progress.setVisibility(View.GONE);
+				btnPlayReencodedVideo.setEnabled(true);
+				getOutput().delete();
+				Toast.makeText(ExampleActivity.this, result.getMessage(),
+						Toast.LENGTH_SHORT).show();
+			}
+		});
 	}
 
 	private File getOutput() {
@@ -263,7 +230,7 @@ public class ExampleActivity extends Activity implements OnClickListener,
 			v.showContextMenu();
 			break;
 		case id.btn_start_reencoding:
-			reencode();
+			shrink();
 			break;
 		case id.btn_play_selected_video:
 			playVideo(selectedVideoPath);
@@ -275,13 +242,4 @@ public class ExampleActivity extends Activity implements OnClickListener,
 
 	}
 
-	// ===== OnCheckedChangeLister ===== //
-
-	@Override
-	public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-		switch (buttonView.getId()) {
-		case id.chk_is_source_from_camera:
-			onFileSelected(selectedVideoPath, isChecked, true);
-		}
-	}
 }
