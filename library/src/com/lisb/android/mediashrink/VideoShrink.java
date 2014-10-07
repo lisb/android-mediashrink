@@ -23,8 +23,13 @@ public class VideoShrink {
 	private static final String CODEC = "video/avc";
 	private static final long TIMEOUT_USEC = 250;
 	private static final int I_FRAME_INTERVAL = 5;
-	private static final int DEFAULT_FRAMERATE = 30;
-	private static final int MIN_FRAMERATE = DEFAULT_FRAMERATE / 2;
+
+	// フレームレートはビットレート/フレームレートでフレーム一枚あたりのビット数を割り出すために存在する。
+	// そのため厳密に実際の動画のレートに合わせる必要はない。
+	// ただし実際のフレーム数より少なく設定してしまうとファイル数が想定より大きくなってしまうので、
+	// MAX_FRAME_INTERVAL_MSEC をこえた場合、間引く。
+	private static final int FRAMERATE = 30;
+	private static final float MAX_FRAME_INTERVAL_MS = 1000f / (FRAMERATE * 1.1f);
 
 	private static final String SNAPSHOT_FILE_PREFIX = "android-videoshrink-snapshot";
 	private static final String SNAPSHOT_FILE_EXTENSION = "jpg";
@@ -38,8 +43,6 @@ public class VideoShrink {
 
 	private int bitRate;
 	private int width = -1;
-
-	private int frameCount;
 
 	private OnProgressListener onProgressListener;
 
@@ -71,20 +74,6 @@ public class VideoShrink {
 		}
 		this.width = width;
 	}
-
-	/*
-	 * Nexus 7(2013) ではある幅以外だとエンコード結果がおかしくなるので 幅を固定して使うことになる。
-	 * 幅を固定する以外のうまい方法が見つかるまではこのメソッドの使用不可にする。
-	 * 
-	 * @param maxHeight 0以下の時、無視される
-	 */
-	// public void setMaxHeight(int maxHeight) {
-	// if (maxHeight > 0 && maxHeight % 16 > 0) {
-	// throw new IllegalArgumentException(
-	// "Only multiples of 16 is supported.");
-	// }
-	// this.maxHeight = maxHeight;
-	// }
 
 	public void setBitRate(int bitRate) {
 		this.bitRate = bitRate;
@@ -122,24 +111,7 @@ public class VideoShrink {
 
 		// TODO ビットレートが元の値より大きくならないようにする
 		format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
-
-		if (frameCount > 0) {
-			final float durationSec = (float) origin
-					.getLong(MediaFormat.KEY_DURATION) / (1000 * 1000);
-			// Nexus 5 の OMX.qcom.video.encoder.avc では int に四捨五入しないと
-			// MediaCodec#configure で IllegalStateException が飛ぶ。
-			int frameRate = Math.round(frameCount / durationSec);
-
-			Log.d(LOG_TAG, "video frame-count:" + frameCount + ", frame-rate:"
-					+ frameRate);
-			if (frameRate < MIN_FRAMERATE) {
-				Log.d(LOG_TAG, "frame rate is too small.");
-				frameRate = MIN_FRAMERATE;
-			}
-			format.setInteger(MediaFormat.KEY_FRAME_RATE, frameRate);
-		} else {
-			format.setInteger(MediaFormat.KEY_FRAME_RATE, DEFAULT_FRAMERATE);
-		}
+		format.setInteger(MediaFormat.KEY_FRAME_RATE, FRAMERATE);
 
 		Log.d(LOG_TAG, "create encoder configuration format:" + format);
 
@@ -160,11 +132,6 @@ public class VideoShrink {
 	}
 
 	private interface ReencodeListener {
-		/**
-		 * @return if stop or not
-		 */
-		boolean onFrameDecoded(MediaCodec decoder);
-
 		/**
 		 * @return if stop or not
 		 */
@@ -237,6 +204,8 @@ public class VideoShrink {
 
 			extractor.selectTrack(trackIndex);
 
+			int frameCount = 0;
+			long lastDecodePresentationTimeMs = 0;
 			while (true) {
 				while (!extractorDone) {
 					final int decoderInputBufferIndex = decoder
@@ -302,10 +271,8 @@ public class VideoShrink {
 					decoder.releaseOutputBuffer(decoderOutputBufferIndex,
 							render);
 
-					if (decoderOutputBufferInfo.size != 0 && listener != null) {
-						if (listener.onFrameDecoded(decoder)) {
-							return;
-						}
+					if (decoderOutputBufferInfo.size != 0) {
+						frameCount++;
 					}
 
 					if (render) {
@@ -320,12 +287,30 @@ public class VideoShrink {
 							outputSurface.drawNewImage(null);
 						}
 
-						inputSurface
-								.setPresentationTime(decoderOutputBufferInfo.presentationTimeUs * 1000);
-						inputSurface.swapBuffers();
+						final long presentaionTimeMs = decoderOutputBufferInfo.presentationTimeUs / 1000;
+						if (lastDecodePresentationTimeMs <= 0
+								|| presentaionTimeMs
+										- lastDecodePresentationTimeMs >= MAX_FRAME_INTERVAL_MS) {
+							// lastDecodePresentaitonTimeMs
+							// が0以下の場合は特殊なケースになりそうなので間引く対象から外す。
+							inputSurface
+									.setPresentationTime(decoderOutputBufferInfo.presentationTimeUs * 1000);
+							inputSurface.swapBuffers();
+							lastDecodePresentationTimeMs = presentaionTimeMs;
+						} else {
+							Log.i(LOG_TAG,
+									"frame removed because frame interval is too short. current:"
+											+ presentaionTimeMs + ", last:"
+											+ lastDecodePresentationTimeMs);
+						}
 					}
 
 					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+						if (frameCount == 0) {
+							Log.e(LOG_TAG, "no video frame found.");
+							throw new DecodeException("no video frame found.");
+						}
+
 						Log.d(LOG_TAG, "video decoder: EOS");
 						decoderDone = true;
 						encoder.signalEndOfInputStream();
@@ -435,29 +420,17 @@ public class VideoShrink {
 
 	public MediaFormat createOutputFormat(final int trackIndex)
 			throws DecodeException {
-		frameCount = 0;
 		final AtomicReference<MediaFormat> formatRef = new AtomicReference<>();
 		reencode(trackIndex, null, new ReencodeListener() {
-			@Override
-			public boolean onFrameDecoded(MediaCodec decoder) {
-				frameCount++;
-				return false;
-			}
-
 			@Override
 			public boolean onEncoderFormatChanged(MediaCodec encoder) {
 				Log.d(LOG_TAG,
 						"video encoder: output format changed. "
 								+ Utils.toString(encoder.getOutputFormat()));
 				formatRef.set(encoder.getOutputFormat());
-				return false;
+				return true;
 			}
 		});
-
-		if (frameCount == 0) {
-			Log.e(LOG_TAG, "no video frame found.");
-			throw new DecodeException("no video frame found.");
-		}
 
 		return formatRef.get();
 	}
