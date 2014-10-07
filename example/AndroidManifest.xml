@@ -25,6 +25,8 @@
             </intent-filter>
         </activity>
         
+        <service android:name="com.lisb.android.mediashrink.MediaShrinkService" android:process=":media_shrink" />
+        
     </application>
 
 </manifest>

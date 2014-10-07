@@ -1,7 +1,6 @@
 package com.lisb.android.mediashrink;
 
 import java.io.IOException;
-import java.util.concurrent.atomic.AtomicReference;
 
 import android.content.Context;
 import android.graphics.SurfaceTexture;
@@ -9,35 +8,43 @@ import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaMuxer;
-import android.media.MediaPlayer;
-import android.media.MediaPlayer.OnCompletionListener;
-import android.media.MediaPlayer.OnErrorListener;
 import android.net.Uri;
-import android.opengl.GLES20;
 import android.os.Build;
+import android.os.Looper;
 import android.util.Log;
-import android.view.Surface;
 
-public class MediaShrink {
+/**
+ * WARN: {@link MediaShrink#shrink(Uri)} のスレッドについて制約
+ * 
+ * {@link MediaShrink} の呼び出し元のスレッドは {@link Looper} を持たない {@link Thread}
+ * である必要がある。 <br/>
+ * それに加え {@link Looper#getMainLooper()} の {@link Looper} が周り続けている必要がある。<br/>
+ * これらの制約を守らないと圧縮がロックされたままになる。
+ * 
+ * 原因: ビデオの圧縮で利用している {@link SurfaceTexture} のコールバックが呼び出されるスレッドが以下のようになっているので、
+ * 上記の制約を守らないとコールバックが呼び出されない。
+ * <ul>
+ * <li>スレッドが {@link Looper}を保つ場合、そのスレッド</li>
+ * <li>持たない場合、 メインスレッド</li>
+ * </ul>
+ */
+class MediaShrink {
 
 	private static final String LOG_TAG = MediaShrink.class.getSimpleName();
 
-	private static final int PROGRESS_DECODABLE_CHECKED = 50;
 	private static final int PROGRESS_ADD_TRACK = 10;
 	private static final int PROGRESS_WRITE_CONTENT = 40;
 
-	private static final long UPDATE_CHECK_DECODABLE_PROGRESS_INTERVAL_MS = 3 * 1000;
-
 	private final Context context;
 
-	private int maxWidth = -1;
+	private int width = -1;
 	private long durationLimit = -1;
 	private int audioBitRate;
 	private int videoBitRate;
 	private String output;
 	private OnProgressListener onProgressListener;
 
-	public static boolean isSupportedDevice(final Context context) {
+	static boolean isSupportedDevice(final Context context) {
 		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR2) {
 			return false;
 		}
@@ -49,29 +56,18 @@ public class MediaShrink {
 		return true;
 	}
 
-	public static MediaShrink createMediaShrink(final Context context) {
-		if (!isSupportedDevice(context)) {
-			return null;
-		}
-
-		return new MediaShrink(context);
-	}
-
 	public MediaShrink(Context context) {
 		this.context = context;
 	}
 
-	public void shrink(final Uri src, final boolean checkSource)
-			throws IOException, DecodeException, TooMovieLongException {
+	public void shrink(final Uri src,
+			final UnrecoverableErrorCallback errorCallback) throws IOException,
+			TooMovieLongException {
 		MediaExtractor extractor = null;
 		MediaMetadataRetriever metadataRetriever = null;
 		MediaMuxer muxer = null;
 		VideoShrink videoShrink = null;
 		AudioShrink audioShrink = null;
-
-		// デコード・エンコードで発生した RuntimeException が
-		// 終了処理中の RuntimeException に上書きされないように保存する。
-		RuntimeException re = null;
 
 		try {
 			extractor = new MediaExtractor();
@@ -81,9 +77,8 @@ public class MediaShrink {
 				extractor.setDataSource(context, src, null);
 				metadataRetriever.setDataSource(context, src);
 			} catch (IOException e) {
-				// TODO 多言語化
-				Log.e(LOG_TAG, "Reading input is failed.", e);
-				throw new IOException("指定された動画ファイルの読み込みに失敗しました。", e);
+				Log.e(LOG_TAG, "fail to read input.", e);
+				throw new IOException("fail to read input.", e);
 			}
 
 			checkLength(metadataRetriever);
@@ -124,86 +119,92 @@ public class MediaShrink {
 				}
 			}
 
-			if (checkSource) {
-				// 時間がかかる処理なので checkLength の後に行う
-				maxProgress += PROGRESS_DECODABLE_CHECKED;
-				checkDecodable(src, maxProgress);
-				progress += PROGRESS_DECODABLE_CHECKED;
-			}
-
 			try {
 				muxer = new MediaMuxer(output,
 						MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+				// トラックの作成。
+				Integer newVideoTrack = null;
+				if (videoTrack != null) {
+					videoShrink = new VideoShrink(extractor, metadataRetriever,
+							muxer, errorCallback);
+					videoShrink.setWidth(width);
+					videoShrink.setBitRate(videoBitRate);
+					newVideoTrack = muxer.addTrack(videoShrink
+							.createOutputFormat(videoTrack));
+
+					progress += PROGRESS_ADD_TRACK;
+					deliverProgress(progress, maxProgress);
+				}
+				Integer newAudioTrack = null;
+				if (audioTrack != null) {
+					audioShrink = new AudioShrink(extractor, muxer,
+							errorCallback);
+					audioShrink.setBitRate(audioBitRate);
+					newAudioTrack = muxer.addTrack(audioShrink
+							.createOutputFormat(audioTrack));
+
+					progress += PROGRESS_ADD_TRACK;
+					deliverProgress(progress, maxProgress);
+				}
+
+				muxer.start();
+
+				// コンテンツの作成
+				if (videoShrink != null) {
+					// ビデオ圧縮の進捗を詳細に取れるようにする
+					final int currentProgress = progress;
+					final int currentMaxProgress = maxProgress;
+					videoShrink.setOnProgressListener(new OnProgressListener() {
+						@Override
+						public void onProgress(int progress) {
+							deliverProgress(currentProgress + progress
+									* PROGRESS_WRITE_CONTENT / 100,
+									currentMaxProgress);
+						}
+					});
+					videoShrink.shrink(videoTrack, newVideoTrack);
+
+					progress += PROGRESS_WRITE_CONTENT;
+					deliverProgress(progress, maxProgress);
+				}
+				if (audioShrink != null) {
+					// オーディオ圧縮の進捗を詳細に取れるようにする
+					final int currentProgress = progress;
+					final int currentMaxProgress = maxProgress;
+					audioShrink.setOnProgressListener(new OnProgressListener() {
+						@Override
+						public void onProgress(int progress) {
+							deliverProgress(currentProgress + progress
+									* PROGRESS_WRITE_CONTENT / 100,
+									currentMaxProgress);
+						}
+					});
+					audioShrink.shrink(audioTrack, newAudioTrack);
+
+					progress += PROGRESS_WRITE_CONTENT;
+					deliverProgress(progress, maxProgress);
+				}
 			} catch (IOException e) {
-				// TODO 多言語化
-				Log.e(LOG_TAG, "Writing output is failed.", e);
-				throw new IOException("出力ファイルの作成に失敗しました。", e);
+				Log.e(LOG_TAG, "fail to write output.", e);
+				throw new IOException("fail to write output.", e);
+			} catch (Throwable e) {
+				// muxer はきちんと書き込みせずに閉じると RuntimeException を発行するので
+				// muxer を開いたあとは全ての例外が unrecoverable。
+				Log.e(LOG_TAG, "unrecoverable error occured on media shrink.",
+						e);
+				errorCallback.onUnrecoverableError(e);
+			} finally {
+				if (muxer != null) {
+					muxer.stop();
+					muxer.release();
+				}
 			}
-
-			// トラックの作成。
-			Integer newVideoTrack = null;
-			if (videoTrack != null) {
-				videoShrink = new VideoShrink(extractor, metadataRetriever,
-						muxer);
-				videoShrink.setMaxWidth(maxWidth);
-				videoShrink.setBitRate(videoBitRate);
-				newVideoTrack = muxer.addTrack(videoShrink
-						.createOutputFormat(videoTrack));
-
-				progress += PROGRESS_ADD_TRACK;
-				deliverProgress(progress, maxProgress);
-			}
-			Integer newAudioTrack = null;
-			if (audioTrack != null) {
-				audioShrink = new AudioShrink(extractor, muxer);
-				audioShrink.setBitRate(audioBitRate);
-				newAudioTrack = muxer.addTrack(audioShrink
-						.createOutputFormat(audioTrack));
-
-				progress += PROGRESS_ADD_TRACK;
-				deliverProgress(progress, maxProgress);
-			}
-
-			muxer.start();
-
-			// コンテンツの作成
-			if (videoShrink != null) {
-				// ビデオ圧縮の進捗を詳細に取れるようにする
-				final int currentProgress = progress;
-				final int currentMaxProgress = maxProgress;
-				videoShrink.setOnProgressListener(new OnProgressListener() {
-					@Override
-					public void onProgress(int progress) {
-						deliverProgress(currentProgress + progress
-								* PROGRESS_WRITE_CONTENT / 100,
-								currentMaxProgress);
-					}
-				});
-				videoShrink.shrink(videoTrack, newVideoTrack);
-
-				progress += PROGRESS_WRITE_CONTENT;
-				deliverProgress(progress, maxProgress);
-			}
-			if (audioShrink != null) {
-				// オーディオ圧縮の進捗を詳細に取れるようにする
-				final int currentProgress = progress;
-				final int currentMaxProgress = maxProgress;
-				audioShrink.setOnProgressListener(new OnProgressListener() {
-					@Override
-					public void onProgress(int progress) {
-						deliverProgress(currentProgress + progress
-								* PROGRESS_WRITE_CONTENT / 100,
-								currentMaxProgress);
-					}
-				});
-				audioShrink.shrink(audioTrack, newAudioTrack);
-
-				progress += PROGRESS_WRITE_CONTENT;
-				deliverProgress(progress, maxProgress);
-			}
-		} catch (RuntimeException e) {
-			Log.e(LOG_TAG, "fail to shrink.", e);
-			re = e;
+		} catch (IOException | TooMovieLongException e) {
+			// recoverable error
+			throw e;
+		} catch (Throwable e) {
+			Log.e(LOG_TAG, "unrecoverable error occured on media shrink.", e);
+			errorCallback.onUnrecoverableError(e);
 		} finally {
 			try {
 				if (extractor != null) {
@@ -213,102 +214,16 @@ public class MediaShrink {
 				if (metadataRetriever != null) {
 					metadataRetriever.release();
 				}
-
-				if (muxer != null) {
-					muxer.stop();
-					muxer.release();
-				}
 			} catch (RuntimeException e) {
 				Log.e(LOG_TAG, "fail to finalize shrink.", e);
-				if (re == null) {
-					re = e;
-				}
+				errorCallback.onUnrecoverableError(e);
 			}
-		}
-
-		if (re != null) {
-			throw re;
 		}
 	}
 
 	private void deliverProgress(int progress, int maxProgress) {
 		if (onProgressListener != null) {
 			onProgressListener.onProgress(progress * 100 / maxProgress);
-		}
-	}
-
-	private void checkDecodable(final Uri uri, final int maxProgress)
-			throws IOException, DecodeException {
-		final MediaPlayer player = new MediaPlayer();
-		final Object lock = new Object();
-		final AtomicReference<Boolean> successRef = new AtomicReference<Boolean>(
-				null);
-		final int[] textures = new int[1];
-		GLES20.glGenTextures(1, textures, 0);
-		final SurfaceTexture surfaceTexture = new SurfaceTexture(textures[0]);
-		final Surface surface = new Surface(surfaceTexture);
-
-		try {
-			player.setDataSource(context, uri);
-			player.setSurface(surface);
-			player.setVolume(0f, 0f);
-
-			player.setOnErrorListener(new OnErrorListener() {
-				@Override
-				public boolean onError(MediaPlayer mp, int what, int extra) {
-					Log.e(LOG_TAG, "fail to play on MediaPlayer.");
-					synchronized (lock) {
-						successRef.set(false);
-						lock.notifyAll();
-					}
-					return true;
-				}
-			});
-			player.setOnCompletionListener(new OnCompletionListener() {
-				@Override
-				public void onCompletion(MediaPlayer mp) {
-					Log.d(LOG_TAG, "complete to play on MediaPlayer.");
-					synchronized (lock) {
-						successRef.set(true);
-						lock.notifyAll();
-					}
-				}
-			});
-
-			player.prepare();
-			player.start();
-
-			synchronized (lock) {
-				while (successRef.get() == null) {
-					try {
-						lock.wait(UPDATE_CHECK_DECODABLE_PROGRESS_INTERVAL_MS);
-						if (player.isPlaying()) {
-							deliverProgress(
-									player.getCurrentPosition()
-											* PROGRESS_DECODABLE_CHECKED
-											/ player.getDuration(), maxProgress);
-						}
-					} catch (InterruptedException e) {
-						Log.e(LOG_TAG, "player lock is interrupted.", e);
-					}
-				}
-			}
-
-			if (player.isPlaying()) {
-				player.stop();
-			}
-
-			if (!successRef.get()) {
-				throw new DecodeException("These movie is not decodable.");
-			}
-		} finally {
-			if (player.isPlaying()) {
-				player.stop();
-			}
-			player.release();
-
-			surface.release();
-			surfaceTexture.release();
 		}
 	}
 
@@ -360,23 +275,14 @@ public class MediaShrink {
 	}
 
 	/**
+	 * 指定必須。
+	 * 
 	 * Warning: Nexus 7 では決まった幅(640, 384など)でないとエンコード結果がおかしくなる。
 	 * セットした値で正しくエンコードできるかテストすること。
-	 * 
-	 * @param maxWidth
-	 *            0以下の時、無視される。
 	 */
-	public void setMaxWidth(int maxWidth) {
-		this.maxWidth = maxWidth;
+	public void setWidth(int ｗidth) {
+		this.width = ｗidth;
 	}
-
-	/*
-	 * Nexus 7(2013) ではある幅以外だとエンコード結果がおかしくなるので 幅を固定して使うことになる。
-	 * 幅を固定する以外のうまい方法が見つかるまではこのメソッドの使用不可にする。
-	 */
-	// public void setMaxHeight(int maxHeight) {
-	// this.maxHeight = maxHeight;
-	// }
 
 	public void setOnProgressListener(OnProgressListener listener) {
 		this.onProgressListener = listener;
