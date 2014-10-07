@@ -1,7 +1,6 @@
 package com.lisb.android.mediashrink;
 
 import java.io.IOException;
-import java.util.concurrent.atomic.AtomicReference;
 
 import android.content.Context;
 import android.graphics.SurfaceTexture;
@@ -9,18 +8,13 @@ import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaMuxer;
-import android.media.MediaPlayer;
-import android.media.MediaPlayer.OnCompletionListener;
-import android.media.MediaPlayer.OnErrorListener;
 import android.net.Uri;
-import android.opengl.GLES20;
 import android.os.Build;
 import android.os.Looper;
 import android.util.Log;
-import android.view.Surface;
 
 /**
- * WARN: {@link MediaShrink#shrink(Uri, boolean)} のスレッドについて制約
+ * WARN: {@link MediaShrink#shrink(Uri)} のスレッドについて制約
  * 
  * {@link MediaShrink} の呼び出し元のスレッドは {@link Looper} を持たない {@link Thread}
  * である必要がある。 <br/>
@@ -38,11 +32,8 @@ class MediaShrink {
 
 	private static final String LOG_TAG = MediaShrink.class.getSimpleName();
 
-	private static final int PROGRESS_DECODABLE_CHECKED = 50;
 	private static final int PROGRESS_ADD_TRACK = 10;
 	private static final int PROGRESS_WRITE_CONTENT = 40;
-
-	private static final long UPDATE_CHECK_DECODABLE_PROGRESS_INTERVAL_MS = 3 * 1000;
 
 	private final Context context;
 
@@ -77,8 +68,8 @@ class MediaShrink {
 		this.context = context;
 	}
 
-	public void shrink(final Uri src, final boolean checkSource)
-			throws IOException, DecodeException, TooMovieLongException {
+	public void shrink(final Uri src) throws IOException, DecodeException,
+			TooMovieLongException {
 		MediaExtractor extractor = null;
 		MediaMetadataRetriever metadataRetriever = null;
 		MediaMuxer muxer = null;
@@ -97,9 +88,8 @@ class MediaShrink {
 				extractor.setDataSource(context, src, null);
 				metadataRetriever.setDataSource(context, src);
 			} catch (IOException e) {
-				// TODO 多言語化
-				Log.e(LOG_TAG, "Reading input is failed.", e);
-				throw new IOException("指定された動画ファイルの読み込みに失敗しました。", e);
+				Log.e(LOG_TAG, "fail to read input.", e);
+				throw new IOException("fail to read input.", e);
 			}
 
 			checkLength(metadataRetriever);
@@ -140,20 +130,12 @@ class MediaShrink {
 				}
 			}
 
-			if (checkSource) {
-				// 時間がかかる処理なので checkLength の後に行う
-				maxProgress += PROGRESS_DECODABLE_CHECKED;
-				checkDecodable(src, maxProgress);
-				progress += PROGRESS_DECODABLE_CHECKED;
-			}
-
 			try {
 				muxer = new MediaMuxer(output,
 						MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
 			} catch (IOException e) {
-				// TODO 多言語化
-				Log.e(LOG_TAG, "Writing output is failed.", e);
-				throw new IOException("出力ファイルの作成に失敗しました。", e);
+				Log.e(LOG_TAG, "fail to write output.", e);
+				throw new IOException("fail to write output.", e);
 			}
 
 			// トラックの作成。
@@ -250,81 +232,6 @@ class MediaShrink {
 	private void deliverProgress(int progress, int maxProgress) {
 		if (onProgressListener != null) {
 			onProgressListener.onProgress(progress * 100 / maxProgress);
-		}
-	}
-
-	private void checkDecodable(final Uri uri, final int maxProgress)
-			throws IOException, DecodeException {
-		final MediaPlayer player = new MediaPlayer();
-		final Object lock = new Object();
-		final AtomicReference<Boolean> successRef = new AtomicReference<Boolean>(
-				null);
-		final int[] textures = new int[1];
-		GLES20.glGenTextures(1, textures, 0);
-		final SurfaceTexture surfaceTexture = new SurfaceTexture(textures[0]);
-		final Surface surface = new Surface(surfaceTexture);
-
-		try {
-			player.setDataSource(context, uri);
-			player.setSurface(surface);
-			player.setVolume(0f, 0f);
-
-			player.setOnErrorListener(new OnErrorListener() {
-				@Override
-				public boolean onError(MediaPlayer mp, int what, int extra) {
-					Log.e(LOG_TAG, "fail to play on MediaPlayer.");
-					synchronized (lock) {
-						successRef.set(false);
-						lock.notifyAll();
-					}
-					return true;
-				}
-			});
-			player.setOnCompletionListener(new OnCompletionListener() {
-				@Override
-				public void onCompletion(MediaPlayer mp) {
-					Log.d(LOG_TAG, "complete to play on MediaPlayer.");
-					synchronized (lock) {
-						successRef.set(true);
-						lock.notifyAll();
-					}
-				}
-			});
-
-			player.prepare();
-			player.start();
-
-			synchronized (lock) {
-				while (successRef.get() == null) {
-					try {
-						lock.wait(UPDATE_CHECK_DECODABLE_PROGRESS_INTERVAL_MS);
-						if (player.isPlaying()) {
-							deliverProgress(
-									player.getCurrentPosition()
-											* PROGRESS_DECODABLE_CHECKED
-											/ player.getDuration(), maxProgress);
-						}
-					} catch (InterruptedException e) {
-						Log.e(LOG_TAG, "player lock is interrupted.", e);
-					}
-				}
-			}
-
-			if (player.isPlaying()) {
-				player.stop();
-			}
-
-			if (!successRef.get()) {
-				throw new DecodeException("These movie is not decodable.");
-			}
-		} finally {
-			if (player.isPlaying()) {
-				player.stop();
-			}
-			player.release();
-
-			surface.release();
-			surfaceTexture.release();
 		}
 	}
 

@@ -106,7 +106,7 @@ public class MediaShrinkService extends Service {
 						try {
 							final Uri source = (Uri) msg.getData()
 									.getParcelable(REQUEST_SHRINK_SOURCE_URI);
-							mediaShrink.shrink(source, false);
+							mediaShrink.shrink(source);
 							respondSafely(Message.obtain(null,
 									RESULT_COMPLETE_MSGID));
 						} catch (IOException | DecodeException
