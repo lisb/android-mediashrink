@@ -63,7 +63,7 @@ public class MediaShrinkService extends Service {
 	public IBinder onBind(Intent intent) {
 		Log.v(LOG_TAG, "onBind");
 		mediaShrink.setOutput(intent.getStringExtra(EXTRA_DEST_FILEPATH));
-		mediaShrink.setMaxWidth(intent.getIntExtra(EXTRA_WIDTH, -1));
+		mediaShrink.setWidth(intent.getIntExtra(EXTRA_WIDTH, -1));
 		mediaShrink
 				.setVideoBitRate(intent.getIntExtra(EXTRA_VIDEO_BITRATE, -1));
 		mediaShrink

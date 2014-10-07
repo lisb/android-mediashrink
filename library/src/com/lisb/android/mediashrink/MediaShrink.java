@@ -37,7 +37,7 @@ class MediaShrink {
 
 	private final Context context;
 
-	private int maxWidth = -1;
+	private int width = -1;
 	private long durationLimit = -1;
 	private int audioBitRate;
 	private int videoBitRate;
@@ -127,7 +127,7 @@ class MediaShrink {
 				if (videoTrack != null) {
 					videoShrink = new VideoShrink(extractor, metadataRetriever,
 							muxer, errorCallback);
-					videoShrink.setMaxWidth(maxWidth);
+					videoShrink.setWidth(width);
 					videoShrink.setBitRate(videoBitRate);
 					newVideoTrack = muxer.addTrack(videoShrink
 							.createOutputFormat(videoTrack));
@@ -275,23 +275,14 @@ class MediaShrink {
 	}
 
 	/**
+	 * 指定必須。
+	 * 
 	 * Warning: Nexus 7 では決まった幅(640, 384など)でないとエンコード結果がおかしくなる。
 	 * セットした値で正しくエンコードできるかテストすること。
-	 * 
-	 * @param maxWidth
-	 *            0以下の時、無視される。
 	 */
-	public void setMaxWidth(int maxWidth) {
-		this.maxWidth = maxWidth;
+	public void setWidth(int ｗidth) {
+		this.width = ｗidth;
 	}
-
-	/*
-	 * Nexus 7(2013) ではある幅以外だとエンコード結果がおかしくなるので 幅を固定して使うことになる。
-	 * 幅を固定する以外のうまい方法が見つかるまではこのメソッドの使用不可にする。
-	 */
-	// public void setMaxHeight(int maxHeight) {
-	// this.maxHeight = maxHeight;
-	// }
 
 	public void setOnProgressListener(OnProgressListener listener) {
 		this.onProgressListener = listener;

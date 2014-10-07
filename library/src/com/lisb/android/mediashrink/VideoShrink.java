@@ -37,8 +37,7 @@ public class VideoShrink {
 	private final int rotation;
 
 	private int bitRate;
-	private int maxWidth = -1;
-	private int maxHeight = -1;
+	private int width = -1;
 
 	private int frameCount;
 
@@ -60,18 +59,17 @@ public class VideoShrink {
 	}
 
 	/**
+	 * 指定必須
+	 * 
 	 * Warning: Nexus 7 では決まった幅(640, 384など)でないとエンコード結果がおかしくなる。
 	 * セットした値で正しくエンコードできるかテストすること。
-	 * 
-	 * @param maxWidth
-	 *            0以下の時、無視される。
 	 */
-	public void setMaxWidth(int maxWidth) {
-		if (maxWidth > 0 && maxWidth % 16 > 0) {
+	public void setWidth(int width) {
+		if (width > 0 && width % 16 > 0) {
 			throw new IllegalArgumentException(
 					"Only multiples of 16 is supported.");
 		}
-		this.maxWidth = maxWidth;
+		this.width = width;
 	}
 
 	/*
@@ -112,28 +110,9 @@ public class VideoShrink {
 			originHeight = origin.getInteger(MediaFormat.KEY_HEIGHT);
 		}
 
+		final float widthRatio = (float) width / originWidth;
 		// アスペクト比を保ったまま、16の倍数になるように(エンコードの制限) width, height を指定する。
-		final int width;
-		final int height;
-		float widthRatio = 1;
-		if (maxWidth > 0) {
-			widthRatio = (float) maxWidth / originWidth;
-		}
-		float heightRatio = 1;
-		if (maxHeight > 0) {
-			heightRatio = (float) maxHeight / originHeight;
-		}
-
-		if (widthRatio == heightRatio) {
-			width = maxWidth;
-			height = maxHeight;
-		} else if (widthRatio < heightRatio) {
-			width = maxWidth;
-			height = getMultipliesOf16(originHeight * widthRatio);
-		} else {
-			width = getMultipliesOf16(originWidth * heightRatio);
-			height = maxHeight;
-		}
+		final int height = getMultipliesOf16(originHeight * widthRatio);
 
 		final MediaFormat format = MediaFormat.createVideoFormat(CODEC, width,
 				height);
