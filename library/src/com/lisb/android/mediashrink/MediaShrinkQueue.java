@@ -87,10 +87,14 @@ public class MediaShrinkQueue {
 	private void bindServiceIfNeed() throws IOException {
 		if (connection == null) {
 			Log.v(LOG_TAG, "bind service.");
+
+			checkWorkingDirAvailable(context);
+			final File workingFile = getWorkingFile();
+
 			connection = new MediaShrinkServiceConnection();
 			final Intent intent = new Intent(context, MediaShrinkService.class);
 			intent.putExtra(MediaShrinkService.EXTRA_DEST_FILEPATH,
-					getWorkingFile().getAbsolutePath());
+					workingFile.getAbsolutePath());
 			intent.putExtra(MediaShrinkService.EXTRA_WIDTH, width);
 			intent.putExtra(MediaShrinkService.EXTRA_VIDEO_BITRATE,
 					videoBitrate);
@@ -148,9 +152,12 @@ public class MediaShrinkQueue {
 		}
 	}
 
-	public static boolean isWorkingDirAvailable(final Context context) {
-		return Environment.MEDIA_MOUNTED.equals(Environment
-				.getExternalStorageState());
+	private static void checkWorkingDirAvailable(final Context context)
+			throws ExternalStageNotMounted {
+		if (!Environment.MEDIA_MOUNTED.equals(Environment
+				.getExternalStorageState())) {
+			throw new ExternalStageNotMounted("external storage not mounted.");
+		}
 	}
 
 	private File getWorkingFile() throws IOException {
