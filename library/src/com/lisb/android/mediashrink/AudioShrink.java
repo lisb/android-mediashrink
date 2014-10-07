@@ -25,8 +25,6 @@ public class AudioShrink {
 	private final MediaMuxer muxer;
 	private final UnrecoverableErrorCallback errorCallback;
 
-	private int sampleCount;
-
 	private OnProgressListener onProgressListener;
 
 	private static final long UPDATE_PROGRESS_INTERVAL_MS = 3 * 1000;
@@ -135,6 +133,7 @@ public class AudioShrink {
 			long lastDecoderOutputPts = -1;
 			long lastEncoderOutputPts = -1;
 
+			int sampleCount = 0;
 			while (true) {
 				while (!extractorDone) {
 					final int decoderInputBufferIndex = decoder
@@ -168,6 +167,12 @@ public class AudioShrink {
 					extractorDone = !extractor.advance();
 					if (extractorDone) {
 						Log.d(LOG_TAG, "audio extractor: EOS");
+
+						if (sampleCount == 0) {
+							Log.e(LOG_TAG, "no audio sample found.");
+							throw new DecodeException("no audio sample found.");
+						}
+
 						decoder.queueInputBuffer(decoderInputBufferIndex, 0, 0,
 								0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
 					}
@@ -244,10 +249,8 @@ public class AudioShrink {
 					decoder.releaseOutputBuffer(
 							pendingDecoderOutputBufferIndex, false);
 
-					if (decoderOutputBufferInfo.size != 0 && listener != null) {
-						if (listener.onFrameDecoded(decoder)) {
-							return;
-						}
+					if (decoderOutputBufferInfo.size != 0) {
+						sampleCount++;
 					}
 
 					pendingDecoderOutputBufferIndex = -1;
@@ -349,34 +352,22 @@ public class AudioShrink {
 
 			extractor.unselectTrack(trackIndex);
 		}
+
 	}
 
 	public MediaFormat createOutputFormat(final int trackIndex)
 			throws DecodeException {
-		sampleCount = 0;
 		final AtomicReference<MediaFormat> formatRef = new AtomicReference<>();
 		reencode(trackIndex, null, new ReencodeListener() {
-			@Override
-			public boolean onFrameDecoded(MediaCodec decoder) {
-				sampleCount++;
-				return false;
-			}
-
 			@Override
 			public boolean onEncoderFormatChanged(MediaCodec encoder) {
 				Log.d(LOG_TAG,
 						"audio encoder: output format changed. "
 								+ Utils.toString(encoder.getOutputFormat()));
 				formatRef.set(encoder.getOutputFormat());
-				return false;
+				return true;
 			}
 		});
-
-		if (sampleCount == 0) {
-			Log.e(LOG_TAG, "no audio sample found.");
-			throw new DecodeException("no audio sample found.");
-		}
-
 		return formatRef.get();
 	}
 
@@ -406,11 +397,6 @@ public class AudioShrink {
 	}
 
 	private interface ReencodeListener {
-		/**
-		 * @return if stop or not
-		 */
-		boolean onFrameDecoded(MediaCodec decoder);
-
 		/**
 		 * @return if stop or not
 		 */
