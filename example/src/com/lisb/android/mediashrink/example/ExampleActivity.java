@@ -205,7 +205,13 @@ public class ExampleActivity extends Activity implements OnClickListener {
 				progress.setVisibility(View.GONE);
 				btnPlayReencodedVideo.setEnabled(true);
 				getOutput().delete();
-				Toast.makeText(ExampleActivity.this, result.getMessage(),
+
+				String errorMessage = result.getMessage();
+				if (errorMessage == null || errorMessage.isEmpty()) {
+					errorMessage = "fail to shrink.";
+				}
+
+				Toast.makeText(ExampleActivity.this, errorMessage,
 						Toast.LENGTH_SHORT).show();
 			}
 		});

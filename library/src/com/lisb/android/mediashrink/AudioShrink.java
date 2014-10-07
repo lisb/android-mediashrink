@@ -23,6 +23,7 @@ public class AudioShrink {
 
 	private final MediaExtractor extractor;
 	private final MediaMuxer muxer;
+	private final UnrecoverableErrorCallback errorCallback;
 
 	private int sampleCount;
 
@@ -30,9 +31,11 @@ public class AudioShrink {
 
 	private static final long UPDATE_PROGRESS_INTERVAL_MS = 3 * 1000;
 
-	public AudioShrink(MediaExtractor extractor, MediaMuxer muxer) {
+	public AudioShrink(MediaExtractor extractor, MediaMuxer muxer,
+			UnrecoverableErrorCallback errorCallback) {
 		this.extractor = extractor;
 		this.muxer = muxer;
+		this.errorCallback = errorCallback;
 	}
 
 	public void setBitRate(int bitRate) {
@@ -327,6 +330,12 @@ public class AudioShrink {
 					break;
 				}
 			}
+		} catch (DecodeException e) {
+			// recoverable error
+			throw e;
+		} catch (Throwable e) {
+			Log.e(LOG_TAG, "unrecoverable error occured on audio shrink.", e);
+			errorCallback.onUnrecoverableError(e);
 		} finally {
 			if (encoder != null) {
 				encoder.stop();

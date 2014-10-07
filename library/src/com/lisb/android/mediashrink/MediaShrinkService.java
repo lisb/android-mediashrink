@@ -87,7 +87,7 @@ public class MediaShrinkService extends Service {
 	}
 
 	private class ReceiveRequestHandler extends Handler implements
-			OnProgressListener {
+			OnProgressListener, UnrecoverableErrorCallback {
 
 		private Message currentMessage;
 
@@ -104,13 +104,13 @@ public class MediaShrinkService extends Service {
 					@Override
 					public void run() {
 						try {
-							final Uri source = (Uri) msg.getData()
+							final Uri source = (Uri) currentMessage.getData()
 									.getParcelable(REQUEST_SHRINK_SOURCE_URI);
-							mediaShrink.shrink(source);
+							mediaShrink.shrink(source,
+									ReceiveRequestHandler.this);
 							respondSafely(Message.obtain(null,
 									RESULT_COMPLETE_MSGID));
-						} catch (IOException | DecodeException
-								| TooMovieLongException e) {
+						} catch (IOException | TooMovieLongException e) {
 							Log.e(LOG_TAG, "fail to media shrink", e);
 							final Message response = Message.obtain();
 							response.what = RESULT_RECOVERABLE_ERROR_MSGID;
@@ -119,16 +119,6 @@ public class MediaShrinkService extends Service {
 									RESULT_RECOVERABLE_ERROR_EXCEPTION, e);
 							response.setData(data);
 							respondSafely(response);
-						} catch (Exception e) {
-							Log.e(LOG_TAG, "unrecoverable error occured.", e);
-							final Message response = Message.obtain();
-							response.what = RESULT_UNRECOVERABLE_ERROR_MSGID;
-							final Bundle data = new Bundle();
-							data.putSerializable(
-									RESULT_UNRECOVERABLE_ERROR_EXCEPTION, e);
-							response.setData(data);
-							respondSafely(response);
-
 						}
 						currentMessage = null;
 						synchronized (lock) {
@@ -165,5 +155,17 @@ public class MediaShrinkService extends Service {
 					0));
 		}
 
+		@Override
+		public void onUnrecoverableError(Throwable e) {
+			Log.e(LOG_TAG, "unrecoverable error occured.", e);
+			final Message response = Message.obtain();
+			response.what = RESULT_UNRECOVERABLE_ERROR_MSGID;
+			final Bundle data = new Bundle();
+			data.putSerializable(RESULT_UNRECOVERABLE_ERROR_EXCEPTION, e);
+			response.setData(data);
+			respondSafely(response);
+			Process.killProcess(Process.myPid());
+		}
 	}
+
 }

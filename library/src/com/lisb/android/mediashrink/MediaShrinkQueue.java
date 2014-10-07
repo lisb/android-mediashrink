@@ -7,6 +7,7 @@ import java.util.Queue;
 
 import org.jdeferred.Deferred;
 import org.jdeferred.Promise;
+import org.jdeferred.Promise.State;
 import org.jdeferred.impl.DeferredObject;
 
 import android.annotation.SuppressLint;
@@ -190,7 +191,8 @@ public class MediaShrinkQueue {
 				@Override
 				public void run() {
 					final Request request = queue.poll();
-					if (request != null) {
+					if (request != null
+							&& request.deferred.state() == State.PENDING) {
 						request.deferred.reject(new RuntimeException(
 								"process killed."));
 					}
@@ -243,8 +245,8 @@ public class MediaShrinkQueue {
 				break;
 			}
 			case MediaShrinkService.RESULT_UNRECOVERABLE_ERROR_MSGID: {
-				// rebind はイベントに任せる
-				final Request request = queue.poll();
+				// rebind や request のキューからの除去は onServiceDisconnected に任せる
+				final Request request = queue.peek();
 				request.deferred
 						.reject((Exception) msg
 								.getData()

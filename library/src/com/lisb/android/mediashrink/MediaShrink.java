@@ -56,29 +56,18 @@ class MediaShrink {
 		return true;
 	}
 
-	static MediaShrink createMediaShrink(final Context context) {
-		if (!isSupportedDevice(context)) {
-			return null;
-		}
-
-		return new MediaShrink(context);
-	}
-
 	public MediaShrink(Context context) {
 		this.context = context;
 	}
 
-	public void shrink(final Uri src) throws IOException, DecodeException,
+	public void shrink(final Uri src,
+			final UnrecoverableErrorCallback errorCallback) throws IOException,
 			TooMovieLongException {
 		MediaExtractor extractor = null;
 		MediaMetadataRetriever metadataRetriever = null;
 		MediaMuxer muxer = null;
 		VideoShrink videoShrink = null;
 		AudioShrink audioShrink = null;
-
-		// デコード・エンコードで発生した RuntimeException が
-		// 終了処理中の RuntimeException に上書きされないように保存する。
-		RuntimeException re = null;
 
 		try {
 			extractor = new MediaExtractor();
@@ -133,75 +122,89 @@ class MediaShrink {
 			try {
 				muxer = new MediaMuxer(output,
 						MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+				// トラックの作成。
+				Integer newVideoTrack = null;
+				if (videoTrack != null) {
+					videoShrink = new VideoShrink(extractor, metadataRetriever,
+							muxer, errorCallback);
+					videoShrink.setMaxWidth(maxWidth);
+					videoShrink.setBitRate(videoBitRate);
+					newVideoTrack = muxer.addTrack(videoShrink
+							.createOutputFormat(videoTrack));
+
+					progress += PROGRESS_ADD_TRACK;
+					deliverProgress(progress, maxProgress);
+				}
+				Integer newAudioTrack = null;
+				if (audioTrack != null) {
+					audioShrink = new AudioShrink(extractor, muxer,
+							errorCallback);
+					audioShrink.setBitRate(audioBitRate);
+					newAudioTrack = muxer.addTrack(audioShrink
+							.createOutputFormat(audioTrack));
+
+					progress += PROGRESS_ADD_TRACK;
+					deliverProgress(progress, maxProgress);
+				}
+
+				muxer.start();
+
+				// コンテンツの作成
+				if (videoShrink != null) {
+					// ビデオ圧縮の進捗を詳細に取れるようにする
+					final int currentProgress = progress;
+					final int currentMaxProgress = maxProgress;
+					videoShrink.setOnProgressListener(new OnProgressListener() {
+						@Override
+						public void onProgress(int progress) {
+							deliverProgress(currentProgress + progress
+									* PROGRESS_WRITE_CONTENT / 100,
+									currentMaxProgress);
+						}
+					});
+					videoShrink.shrink(videoTrack, newVideoTrack);
+
+					progress += PROGRESS_WRITE_CONTENT;
+					deliverProgress(progress, maxProgress);
+				}
+				if (audioShrink != null) {
+					// オーディオ圧縮の進捗を詳細に取れるようにする
+					final int currentProgress = progress;
+					final int currentMaxProgress = maxProgress;
+					audioShrink.setOnProgressListener(new OnProgressListener() {
+						@Override
+						public void onProgress(int progress) {
+							deliverProgress(currentProgress + progress
+									* PROGRESS_WRITE_CONTENT / 100,
+									currentMaxProgress);
+						}
+					});
+					audioShrink.shrink(audioTrack, newAudioTrack);
+
+					progress += PROGRESS_WRITE_CONTENT;
+					deliverProgress(progress, maxProgress);
+				}
 			} catch (IOException e) {
 				Log.e(LOG_TAG, "fail to write output.", e);
 				throw new IOException("fail to write output.", e);
+			} catch (Throwable e) {
+				// muxer はきちんと書き込みせずに閉じると RuntimeException を発行するので
+				// muxer を開いたあとは全ての例外が unrecoverable。
+				Log.e(LOG_TAG, "unrecoverable error occured on media shrink.",
+						e);
+				errorCallback.onUnrecoverableError(e);
+			} finally {
+				if (muxer != null) {
+					muxer.stop();
+					muxer.release();
+				}
 			}
-
-			// トラックの作成。
-			Integer newVideoTrack = null;
-			if (videoTrack != null) {
-				videoShrink = new VideoShrink(extractor, metadataRetriever,
-						muxer);
-				videoShrink.setMaxWidth(maxWidth);
-				videoShrink.setBitRate(videoBitRate);
-				newVideoTrack = muxer.addTrack(videoShrink
-						.createOutputFormat(videoTrack));
-
-				progress += PROGRESS_ADD_TRACK;
-				deliverProgress(progress, maxProgress);
-			}
-			Integer newAudioTrack = null;
-			if (audioTrack != null) {
-				audioShrink = new AudioShrink(extractor, muxer);
-				audioShrink.setBitRate(audioBitRate);
-				newAudioTrack = muxer.addTrack(audioShrink
-						.createOutputFormat(audioTrack));
-
-				progress += PROGRESS_ADD_TRACK;
-				deliverProgress(progress, maxProgress);
-			}
-
-			muxer.start();
-
-			// コンテンツの作成
-			if (videoShrink != null) {
-				// ビデオ圧縮の進捗を詳細に取れるようにする
-				final int currentProgress = progress;
-				final int currentMaxProgress = maxProgress;
-				videoShrink.setOnProgressListener(new OnProgressListener() {
-					@Override
-					public void onProgress(int progress) {
-						deliverProgress(currentProgress + progress
-								* PROGRESS_WRITE_CONTENT / 100,
-								currentMaxProgress);
-					}
-				});
-				videoShrink.shrink(videoTrack, newVideoTrack);
-
-				progress += PROGRESS_WRITE_CONTENT;
-				deliverProgress(progress, maxProgress);
-			}
-			if (audioShrink != null) {
-				// オーディオ圧縮の進捗を詳細に取れるようにする
-				final int currentProgress = progress;
-				final int currentMaxProgress = maxProgress;
-				audioShrink.setOnProgressListener(new OnProgressListener() {
-					@Override
-					public void onProgress(int progress) {
-						deliverProgress(currentProgress + progress
-								* PROGRESS_WRITE_CONTENT / 100,
-								currentMaxProgress);
-					}
-				});
-				audioShrink.shrink(audioTrack, newAudioTrack);
-
-				progress += PROGRESS_WRITE_CONTENT;
-				deliverProgress(progress, maxProgress);
-			}
-		} catch (RuntimeException e) {
-			Log.e(LOG_TAG, "fail to shrink.", e);
-			re = e;
+		} catch (IOException | TooMovieLongException e) {
+			// recoverable error
+			throw e;
+		} catch (Throwable e) {
+			Log.e(LOG_TAG, "unrecoverable error occured on media shrink.", e);
+			errorCallback.onUnrecoverableError(e);
 		} finally {
 			try {
 				if (extractor != null) {
@@ -211,21 +214,10 @@ class MediaShrink {
 				if (metadataRetriever != null) {
 					metadataRetriever.release();
 				}
-
-				if (muxer != null) {
-					muxer.stop();
-					muxer.release();
-				}
 			} catch (RuntimeException e) {
 				Log.e(LOG_TAG, "fail to finalize shrink.", e);
-				if (re == null) {
-					re = e;
-				}
+				errorCallback.onUnrecoverableError(e);
 			}
-		}
-
-		if (re != null) {
-			throw re;
 		}
 	}
 

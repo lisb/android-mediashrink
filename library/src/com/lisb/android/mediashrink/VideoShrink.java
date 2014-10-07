@@ -33,6 +33,7 @@ public class VideoShrink {
 	private final MediaExtractor extractor;
 	private final MediaMetadataRetriever metadataRetriever;
 	private final MediaMuxer muxer;
+	private final UnrecoverableErrorCallback errorCallback;
 	private final int rotation;
 
 	private int bitRate;
@@ -46,10 +47,12 @@ public class VideoShrink {
 	private static final long UPDATE_PROGRESS_INTERVAL_MS = 3 * 1000;
 
 	public VideoShrink(final MediaExtractor extractor,
-			final MediaMetadataRetriever retriever, final MediaMuxer muxer) {
+			final MediaMetadataRetriever retriever, final MediaMuxer muxer,
+			final UnrecoverableErrorCallback errorCallback) {
 		this.extractor = extractor;
 		this.metadataRetriever = retriever;
 		this.muxer = muxer;
+		this.errorCallback = errorCallback;
 
 		this.rotation = Integer
 				.parseInt(metadataRetriever
@@ -416,6 +419,12 @@ public class VideoShrink {
 					break;
 				}
 			}
+		} catch (DecodeException e) {
+			// recoverable error
+			throw e;
+		} catch (Throwable e) {
+			Log.e(LOG_TAG, "unrecoverable error occured on video shrink.", e);
+			errorCallback.onUnrecoverableError(e);
 		} finally {
 			if (encoder != null) {
 				encoder.stop();
