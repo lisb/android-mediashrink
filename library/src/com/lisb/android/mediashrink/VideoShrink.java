@@ -441,24 +441,38 @@ public class VideoShrink {
 	}
 
 	private MediaCodec createDecoder(final MediaFormat format,
-			final Surface surface) {
-		final MediaCodec decoder = MediaCodec.createByCodecName(Utils
-				.selectCodec(format.getString(MediaFormat.KEY_MIME), false)
-				.getName());
-		if (decoder != null) {
-			decoder.configure(format, surface, null, 0);
+			final Surface surface) throws DecoderCreationException {
+		try {
+			final MediaCodec decoder = MediaCodec.createByCodecName(Utils
+					.selectCodec(format.getString(MediaFormat.KEY_MIME), false)
+					.getName());
+			if (decoder != null) {
+				decoder.configure(format, surface, null, 0);
 
-			Log.d(LOG_TAG, "video decoder:" + decoder.getName());
+				Log.d(LOG_TAG, "video decoder:" + decoder.getName());
+			}
+			return decoder;
+		} catch (IllegalStateException e) {
+			Log.e(LOG_TAG, "fail to create video decoder.", e);
+			throw new DecoderCreationException("fail to create video decoder.",
+					e);
 		}
-		return decoder;
 	}
 
-	private MediaCodec createEncoder(final MediaFormat format) {
-		final MediaCodec encoder = MediaCodec.createByCodecName(Utils
-				.selectCodec(CODEC, true).getName());
-		encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+	private MediaCodec createEncoder(final MediaFormat format)
+			throws EncoderCreationException {
+		try {
+			final MediaCodec encoder = MediaCodec.createByCodecName(Utils
+					.selectCodec(CODEC, true).getName());
+			encoder.configure(format, null, null,
+					MediaCodec.CONFIGURE_FLAG_ENCODE);
 
-		Log.d(LOG_TAG, "video encoder:" + encoder.getName());
-		return encoder;
+			Log.d(LOG_TAG, "video encoder:" + encoder.getName());
+			return encoder;
+		} catch (IllegalStateException e) {
+			Log.e(LOG_TAG, "fail to create video encoder.", e);
+			throw new EncoderCreationException("fail to create video encoder.",
+					e);
+		}
 	}
 }

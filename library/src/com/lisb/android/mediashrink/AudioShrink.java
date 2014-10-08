@@ -376,24 +376,39 @@ public class AudioShrink {
 		reencode(trackIndex, newTrackIndex, null);
 	}
 
-	private MediaCodec createDecoder(final MediaFormat format) {
-		final String mimeType = format.getString(MediaFormat.KEY_MIME);
-		final MediaCodec decoder = MediaCodec.createByCodecName(Utils
-				.selectCodec(mimeType, false).getName());
-		if (decoder != null) {
-			decoder.configure(format, null, null, 0);
+	private MediaCodec createDecoder(final MediaFormat format)
+			throws DecoderCreationException {
+		try {
+			final String mimeType = format.getString(MediaFormat.KEY_MIME);
+			final MediaCodec decoder = MediaCodec.createByCodecName(Utils
+					.selectCodec(mimeType, false).getName());
+			if (decoder != null) {
+				decoder.configure(format, null, null, 0);
 
-			Log.d(LOG_TAG, "audio decoder:" + decoder.getName());
+				Log.d(LOG_TAG, "audio decoder:" + decoder.getName());
+			}
+			return decoder;
+		} catch (IllegalStateException e) {
+			Log.e(LOG_TAG, "fail to create audio decoder.", e);
+			throw new DecoderCreationException("fail to create audio decoder.",
+					e);
 		}
-		return decoder;
 	}
 
-	private MediaCodec createEncoder(final MediaFormat format) {
-		final MediaCodec encoder = MediaCodec.createByCodecName(Utils
-				.selectCodec(CODEC, true).getName());
-		encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-		Log.d(LOG_TAG, "audio encoder:" + encoder.getName());
-		return encoder;
+	private MediaCodec createEncoder(final MediaFormat format)
+			throws EncoderCreationException {
+		try {
+			final MediaCodec encoder = MediaCodec.createByCodecName(Utils
+					.selectCodec(CODEC, true).getName());
+			encoder.configure(format, null, null,
+					MediaCodec.CONFIGURE_FLAG_ENCODE);
+			Log.d(LOG_TAG, "audio encoder:" + encoder.getName());
+			return encoder;
+		} catch (IllegalStateException e) {
+			Log.e(LOG_TAG, "fail to create audio encoder.", e);
+			throw new EncoderCreationException("fail to create audio encoder.",
+					e);
+		}
 	}
 
 	private interface ReencodeListener {
