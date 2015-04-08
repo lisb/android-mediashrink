@@ -10,6 +10,7 @@ import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaMuxer;
+import android.os.Build;
 import android.os.Environment;
 import android.util.Log;
 import android.view.Surface;
@@ -56,9 +57,9 @@ public class VideoShrink {
 		this.muxer = muxer;
 		this.errorCallback = errorCallback;
 
-		this.rotation = Integer
-				.parseInt(metadataRetriever
-						.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION));
+        this.rotation = Integer
+                .parseInt(metadataRetriever
+                        .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION));
 	}
 
 	/**
@@ -91,6 +92,7 @@ public class VideoShrink {
 			throws DecodeException {
 		final int originWidth;
 		final int originHeight;
+
 		if (rotation == 90 || rotation == 270) {
 			originWidth = origin.getInteger(MediaFormat.KEY_HEIGHT);
 			originHeight = origin.getInteger(MediaFormat.KEY_WIDTH);
@@ -98,6 +100,8 @@ public class VideoShrink {
 			originWidth = origin.getInteger(MediaFormat.KEY_WIDTH);
 			originHeight = origin.getInteger(MediaFormat.KEY_HEIGHT);
 		}
+
+
 
 		final float widthRatio = (float) width / originWidth;
 		// アスペクト比を保ったまま、16の倍数になるように(エンコードの制限) width, height を指定する。
@@ -113,7 +117,7 @@ public class VideoShrink {
 		format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
 		format.setInteger(MediaFormat.KEY_FRAME_RATE, FRAMERATE);
 
-		Log.d(LOG_TAG, "create encoder configuration format:" + format);
+		Log.d(LOG_TAG, "create encoder configuration format:" + format + ", rotation:" + rotation);
 
 		return format;
 	}
@@ -190,7 +194,9 @@ public class VideoShrink {
 				snapshotDuration = 0;
 			}
 
-			outputSurface = new OutputSurface(-rotation);
+            // lollipop から Surface への出力時に自動で回転して出力するようになったため、こちら側では回転を行わない。
+            // https://android.googlesource.com/platform/frameworks/av/+blame/lollipop-release/media/libstagefright/Utils.cpp
+			outputSurface = new OutputSurface(Build.VERSION.SDK_INT >= 21 ? 0 : -rotation);
 			decoder = createDecoder(currentFormat, outputSurface.getSurface());
 			if (decoder == null) {
 				Log.e(LOG_TAG, "video decoder not found.");
