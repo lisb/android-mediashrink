@@ -1,9 +1,5 @@
 package com.lisb.android.mediashrink;
 
-import java.io.File;
-import java.nio.ByteBuffer;
-import java.util.concurrent.atomic.AtomicReference;
-
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaExtractor;
@@ -14,6 +10,11 @@ import android.os.Build;
 import android.os.Environment;
 import android.util.Log;
 import android.view.Surface;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class VideoShrink {
 
@@ -448,37 +449,49 @@ public class VideoShrink {
 
 	private MediaCodec createDecoder(final MediaFormat format,
 			final Surface surface) throws DecoderCreationException {
+		final String codecName = Utils
+				.selectCodec(format.getString(MediaFormat.KEY_MIME), false)
+				.getName();
 		try {
-			final MediaCodec decoder = MediaCodec.createByCodecName(Utils
-					.selectCodec(format.getString(MediaFormat.KEY_MIME), false)
-					.getName());
+			final MediaCodec decoder = MediaCodec.createByCodecName(codecName);
 			if (decoder != null) {
 				decoder.configure(format, surface, null, 0);
 
 				Log.d(LOG_TAG, "video decoder:" + decoder.getName());
 			}
 			return decoder;
+		} catch (IOException e) {
+			// later Lollipop.
+			final String detailMessage = "video decoder cannot be created. codec-name:" + codecName;
+			Log.e(LOG_TAG, detailMessage, e);
+			throw new DecoderCreationException(detailMessage, e);
 		} catch (IllegalStateException e) {
-			Log.e(LOG_TAG, "fail to create video decoder.", e);
-			throw new DecoderCreationException("fail to create video decoder.",
-					e);
+			final String detailMessage = "video decoder cannot be created. codec-name:" + codecName;
+			Log.e(LOG_TAG, detailMessage, e);
+			throw new DecoderCreationException(detailMessage, e);
 		}
 	}
 
 	private MediaCodec createEncoder(final MediaFormat format)
 			throws EncoderCreationException {
+		final String codecName = Utils.selectCodec(CODEC, true).getName();
 		try {
-			final MediaCodec encoder = MediaCodec.createByCodecName(Utils
-					.selectCodec(CODEC, true).getName());
+			final MediaCodec encoder = MediaCodec.createByCodecName(codecName);
 			encoder.configure(format, null, null,
 					MediaCodec.CONFIGURE_FLAG_ENCODE);
 
 			Log.d(LOG_TAG, "video encoder:" + encoder.getName());
 			return encoder;
+		} catch (IOException e) {
+			// later Lollipop.
+			final String detailMessage = "video encoder cannot be created. codec-name:" + codecName;
+			Log.e(LOG_TAG, detailMessage, e);
+			throw new EncoderCreationException(detailMessage, e);
 		} catch (IllegalStateException e) {
-			Log.e(LOG_TAG, "fail to create video encoder.", e);
-			throw new EncoderCreationException("fail to create video encoder.",
-					e);
+			// TODO Change Detail Message If minSDKVersion > 21
+			final String detailMessage = "video encoder cannot be created. codec-name:" + codecName;
+			Log.e(LOG_TAG, detailMessage, e);
+			throw new EncoderCreationException(detailMessage, e);
 		}
 	}
 }
