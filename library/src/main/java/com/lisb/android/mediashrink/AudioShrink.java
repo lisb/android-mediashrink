@@ -1,14 +1,15 @@
 package com.lisb.android.mediashrink;
 
-import java.nio.ByteBuffer;
-import java.util.concurrent.atomic.AtomicReference;
-
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
 import android.util.Log;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class AudioShrink {
 
@@ -378,36 +379,47 @@ public class AudioShrink {
 
 	private MediaCodec createDecoder(final MediaFormat format)
 			throws DecoderCreationException {
+		final String mimeType = format.getString(MediaFormat.KEY_MIME);
+		final String codecName = Utils.selectCodec(mimeType, false).getName();
 		try {
-			final String mimeType = format.getString(MediaFormat.KEY_MIME);
-			final MediaCodec decoder = MediaCodec.createByCodecName(Utils
-					.selectCodec(mimeType, false).getName());
+			final MediaCodec decoder = MediaCodec.createByCodecName(codecName);
 			if (decoder != null) {
 				decoder.configure(format, null, null, 0);
 
 				Log.d(LOG_TAG, "audio decoder:" + decoder.getName());
 			}
 			return decoder;
+		} catch (IOException e) {
+			// later Lollipop.
+			final String detailMessage = "audio decoder cannot be created. codec-name:" + codecName;
+			Log.e(LOG_TAG, detailMessage, e);
+			throw new DecoderCreationException(detailMessage, e);
 		} catch (IllegalStateException e) {
-			Log.e(LOG_TAG, "fail to create audio decoder.", e);
-			throw new DecoderCreationException("fail to create audio decoder.",
-					e);
+			final String detailMessage = "audio decoder cannot be created. codec-name:" + codecName;
+			Log.e(LOG_TAG, detailMessage, e);
+			throw new DecoderCreationException(detailMessage, e);
 		}
 	}
 
 	private MediaCodec createEncoder(final MediaFormat format)
 			throws EncoderCreationException {
+		final String codecName = Utils.selectCodec(CODEC, true).getName();
 		try {
-			final MediaCodec encoder = MediaCodec.createByCodecName(Utils
-					.selectCodec(CODEC, true).getName());
+			final MediaCodec encoder = MediaCodec.createByCodecName(codecName);
 			encoder.configure(format, null, null,
 					MediaCodec.CONFIGURE_FLAG_ENCODE);
 			Log.d(LOG_TAG, "audio encoder:" + encoder.getName());
 			return encoder;
+		} catch (IOException e) {
+			// later Lollipop.
+			final String detailMessage = "audio encoder cannot be created. codec-name:" + codecName;
+			Log.e(LOG_TAG, detailMessage, e);
+			throw new EncoderCreationException(detailMessage, e);
 		} catch (IllegalStateException e) {
-			Log.e(LOG_TAG, "fail to create audio encoder.", e);
-			throw new EncoderCreationException("fail to create audio encoder.",
-					e);
+			// TODO Change Detail Message If minSDKVersion > 21
+			final String detailMessage = "audio encoder cannot be created. codec-name:" + codecName;
+			Log.e(LOG_TAG, detailMessage, e);
+			throw new EncoderCreationException(detailMessage, e);
 		}
 	}
 
