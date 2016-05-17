@@ -1,15 +1,5 @@
 package com.lisb.android.mediashrink;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayDeque;
-import java.util.Queue;
-
-import org.jdeferred.Deferred;
-import org.jdeferred.Promise;
-import org.jdeferred.Promise.State;
-import org.jdeferred.impl.DeferredObject;
-
 import android.annotation.SuppressLint;
 import android.content.ComponentName;
 import android.content.Context;
@@ -26,6 +16,16 @@ import android.os.Messenger;
 import android.os.RemoteException;
 import android.util.Log;
 
+import org.jdeferred.Deferred;
+import org.jdeferred.Promise;
+import org.jdeferred.Promise.State;
+import org.jdeferred.impl.DeferredObject;
+
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.Queue;
+
 public class MediaShrinkQueue {
 
 	private static final String LOG_TAG = MediaShrinkQueue.class
@@ -34,6 +34,8 @@ public class MediaShrinkQueue {
 	private static final String WORKING_DIR = "media-shrink-workspace";
 	private static final String WORKING_FILE = "shrinking";
 
+	private static final long DELAY_RETRY_BIND = 1000;
+
 	private final Context context;
 	private final Handler handler;
 	private final Queue<Request> queue = new ArrayDeque<>();
@@ -41,10 +43,12 @@ public class MediaShrinkQueue {
 	private final int videoBitrate;
 	private final int audioBitrate;
 	private final long durationLimit;
+	private final ServiceConnection connection;
 
-	private ServiceConnection connection;
 	private Messenger sendMessenger;
 	private Messenger receiveMessenger;
+	private boolean unbindInvoked;
+	private IBinder binder;
 
 	public static boolean isSupportedDevice(final Context context) {
 		return MediaShrink.isSupportedDevice(context);
@@ -58,6 +62,7 @@ public class MediaShrinkQueue {
 		this.videoBitrate = videoBitrate;
 		this.audioBitrate = audioBitrate;
 		this.durationLimit = durationLimit;
+		this.connection = new MediaShrinkServiceConnection();
 	}
 
 	public Promise<Void, Exception, Integer> queue(Uri source, File dest) {
@@ -66,10 +71,15 @@ public class MediaShrinkQueue {
 		handler.post(new Runnable() {
 			@Override
 			public void run() {
+				if (isUnbinding()) {
+					handler.postDelayed(this, DELAY_RETRY_BIND);
+					return;
+				}
+
 				try {
-					bindServiceIfNeed();
+					bindService();
 				} catch (IOException e) {
-					Log.e(LOG_TAG, "fail to bind service.", e);
+					Log.e(LOG_TAG, "Fail to bind service.", e);
 					request.deferred.reject(e);
 					return;
 				}
@@ -84,33 +94,36 @@ public class MediaShrinkQueue {
 		return deferred;
 	}
 
-	private void bindServiceIfNeed() throws IOException {
-		if (connection == null) {
-			Log.v(LOG_TAG, "bind service.");
+	private void bindService() throws IOException {
+		Log.v(LOG_TAG, "bind service.");
 
-			checkWorkingDirAvailable(context);
-			final File workingFile = getWorkingFile();
+		if (binder != null && binder.isBinderAlive()) {
+			Log.v(LOG_TAG, "Service bound.");
+			return;
+		}
 
-			connection = new MediaShrinkServiceConnection();
-			final Intent intent = new Intent(context, MediaShrinkService.class);
-			intent.putExtra(MediaShrinkService.EXTRA_DEST_FILEPATH,
-					workingFile.getAbsolutePath());
-			intent.putExtra(MediaShrinkService.EXTRA_WIDTH, width);
-			intent.putExtra(MediaShrinkService.EXTRA_VIDEO_BITRATE,
-					videoBitrate);
-			intent.putExtra(MediaShrinkService.EXTRA_AUDIO_BITRATE,
-					audioBitrate);
-			intent.putExtra(MediaShrinkService.EXTRA_DURATION_LIMIT,
-					durationLimit);
-			context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
+		checkWorkingDirAvailable(context);
+		final File workingFile = getWorkingFile();
+
+		final Intent intent = new Intent(context, MediaShrinkService.class);
+		intent.putExtra(MediaShrinkService.EXTRA_DEST_FILEPATH,
+				workingFile.getAbsolutePath());
+		intent.putExtra(MediaShrinkService.EXTRA_WIDTH, width);
+		intent.putExtra(MediaShrinkService.EXTRA_VIDEO_BITRATE, videoBitrate);
+		intent.putExtra(MediaShrinkService.EXTRA_AUDIO_BITRATE, audioBitrate);
+		intent.putExtra(MediaShrinkService.EXTRA_DURATION_LIMIT, durationLimit);
+
+		if (!context.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
+			Log.e(LOG_TAG, "bindService return false.");
+			throw new IOException("Fail to connect to MediaShrinkService.");
 		}
 	}
 
-	private void unbindServiceIfNeed() {
+	private void unbindServiceIfQueueIsEmpty() {
 		if (queue.isEmpty()) {
 			Log.v(LOG_TAG, "unbind service.");
 			context.unbindService(connection);
-			connection = null;
+			unbindInvoked = true;
 			sendMessenger = null;
 			receiveMessenger = null;
 		}
@@ -136,12 +149,23 @@ public class MediaShrinkQueue {
 		}
 	}
 
-	private void rebindServiceIfNeed() {
+	private void rebindServiceIfQueueIsNotEmpty() {
 		if (!queue.isEmpty()) {
+
+			if (isUnbinding()) {
+				handler.postDelayed(new Runnable() {
+					@Override
+					public void run() {
+						rebindServiceIfQueueIsNotEmpty();
+					}
+				}, DELAY_RETRY_BIND);
+				return;
+			}
+
 			try {
-				bindServiceIfNeed();
+				bindService();
 			} catch (IOException e) {
-				Log.e(LOG_TAG, "fail to reconnect service.", e);
+				Log.e(LOG_TAG, "Fail to reconnect service.", e);
 				final Request[] remains = new Request[queue.size()];
 				queue.toArray(remains);
 				queue.clear();
@@ -150,6 +174,21 @@ public class MediaShrinkQueue {
 				}
 			}
 		}
+	}
+
+	private boolean isUnbinding() {
+		if (!unbindInvoked) {
+			return false;
+		}
+
+		if (binder == null || !binder.pingBinder()) {
+			unbindInvoked = false;
+			binder = null;
+			return false;
+		}
+
+		Log.v(LOG_TAG, "isUnbinding");
+		return true;
 	}
 
 	private static void checkWorkingDirAvailable(final Context context)
@@ -177,6 +216,7 @@ public class MediaShrinkQueue {
 			handler.post(new Runnable() {
 				@Override
 				public void run() {
+					binder = service;
 					sendMessenger = new Messenger(service);
 					receiveMessenger = new Messenger(new ReceiveResultHandler(
 							handler.getLooper()));
@@ -204,15 +244,9 @@ public class MediaShrinkQueue {
 								"process killed."));
 					}
 
-					if (connection != null) {
-						// 相手方のサービスが自動で復元してしまうことがあるので明示的に unbind しておく。
-						context.unbindService(connection);
-						connection = null;
-						sendMessenger = null;
-						receiveMessenger = null;
-					}
-
-					rebindServiceIfNeed();
+					sendMessenger = null;
+					receiveMessenger = null;
+					rebindServiceIfQueueIsNotEmpty();
 				}
 			});
 		}
@@ -238,7 +272,7 @@ public class MediaShrinkQueue {
 					Log.e(LOG_TAG, "fail to rename temp file to dest file.", e);
 					request.deferred.reject(e);
 				}
-				unbindServiceIfNeed();
+				unbindServiceIfQueueIsEmpty();
 				break;
 			}
 			case MediaShrinkService.RESULT_RECOVERABLE_ERROR_MSGID: {
@@ -248,7 +282,7 @@ public class MediaShrinkQueue {
 								.getData()
 								.getSerializable(
 										MediaShrinkService.RESULT_RECOVERABLE_ERROR_EXCEPTION));
-				unbindServiceIfNeed();
+				unbindServiceIfQueueIsEmpty();
 				break;
 			}
 			case MediaShrinkService.RESULT_UNRECOVERABLE_ERROR_MSGID: {
@@ -259,7 +293,7 @@ public class MediaShrinkQueue {
 								.getData()
 								.getSerializable(
 										MediaShrinkService.RESULT_UNRECOVERABLE_ERROR_EXCEPTION));
-				unbindServiceIfNeed();
+				unbindServiceIfQueueIsEmpty();
 				break;
 			}
 			case MediaShrinkService.RESULT_PROGRESS_MSGID: {
