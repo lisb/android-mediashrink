@@ -75,6 +75,12 @@ public class MediaShrinkService extends Service {
 	}
 
 	@Override
+	public boolean onUnbind(Intent intent) {
+		Log.v(LOG_TAG, "onUnbind");
+		return super.onUnbind(intent);
+	}
+
+	@Override
 	public void onDestroy() {
 		Log.v(LOG_TAG, "onDestroy");
 		super.onDestroy();
