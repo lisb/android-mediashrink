@@ -1,6 +1,7 @@
 package com.lisb.android.mediashrink;
 
 import java.io.IOException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import android.app.Service;
@@ -43,11 +44,15 @@ public class MediaShrinkService extends Service {
 	private MediaShrink mediaShrink;
 	private Messenger messenger;
 	private HandlerThread bgThread;
+	private ExecutorService executorService;
 
 	@Override
 	public void onCreate() {
 		Log.v(LOG_TAG, "onCreate");
 		super.onCreate();
+
+		executorService = Executors.newSingleThreadExecutor();
+
 		bgThread = new HandlerThread("request-queue-thread");
 		bgThread.start();
 		final ReceiveRequestHandler handler = new ReceiveRequestHandler(
@@ -88,6 +93,8 @@ public class MediaShrinkService extends Service {
 		messenger = null;
 		bgThread.quit();
 		bgThread = null;
+		executorService.shutdown();
+		executorService = null;
 
 		Process.killProcess(Process.myPid());
 	}
@@ -106,7 +113,7 @@ public class MediaShrinkService extends Service {
 			switch (msg.what) {
 			case REQUEST_SHRINK_MSGID:
 				currentMessage = msg;
-				Executors.newSingleThreadExecutor().execute(new Runnable() {
+				executorService.execute(new Runnable() {
 					@Override
 					public void run() {
 						try {
