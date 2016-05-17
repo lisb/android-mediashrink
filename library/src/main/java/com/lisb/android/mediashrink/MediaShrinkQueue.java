@@ -31,10 +31,14 @@ public class MediaShrinkQueue {
 	private static final String LOG_TAG = MediaShrinkQueue.class
 			.getSimpleName();
 
+	private static final boolean DEBUG = true;
+
 	private static final String WORKING_DIR = "media-shrink-workspace";
 	private static final String WORKING_FILE = "shrinking";
 
 	private static final long DELAY_RETRY_BIND = 1000;
+	// delay unbind to reuse service
+	private static final long DELAY_UNBIND = 10 * 1000;
 
 	private final Context context;
 	private final Handler handler;
@@ -44,9 +48,11 @@ public class MediaShrinkQueue {
 	private final int audioBitrate;
 	private final long durationLimit;
 	private final ServiceConnection connection;
+	private final Runnable unbindTask;
 
 	private Messenger sendMessenger;
 	private Messenger receiveMessenger;
+	private boolean bound;
 	private boolean unbindInvoked;
 	private IBinder binder;
 
@@ -63,6 +69,7 @@ public class MediaShrinkQueue {
 		this.audioBitrate = audioBitrate;
 		this.durationLimit = durationLimit;
 		this.connection = new MediaShrinkServiceConnection();
+		this.unbindTask = new UnbindTask();
 	}
 
 	public Promise<Void, Exception, Integer> queue(Uri source, File dest) {
@@ -117,16 +124,23 @@ public class MediaShrinkQueue {
 			Log.e(LOG_TAG, "bindService return false.");
 			throw new IOException("Fail to connect to MediaShrinkService.");
 		}
+		bound = true;
 	}
 
 	private void unbindServiceIfQueueIsEmpty() {
-		if (queue.isEmpty()) {
+		if (bound && queue.isEmpty()) {
 			Log.v(LOG_TAG, "unbind service.");
 			context.unbindService(connection);
+			bound = false;
 			unbindInvoked = true;
 			sendMessenger = null;
 			receiveMessenger = null;
 		}
+	}
+
+	private void unbindServiceIfQueueIsEmptyDelayed() {
+		handler.removeCallbacks(unbindTask);
+		handler.postDelayed(unbindTask, DELAY_UNBIND);
 	}
 
 	@SuppressLint("Assert")
@@ -243,7 +257,7 @@ public class MediaShrinkQueue {
 						request.deferred.reject(new RuntimeException(
 								"process killed."));
 					}
-
+					bound = false;
 					sendMessenger = null;
 					receiveMessenger = null;
 					rebindServiceIfQueueIsNotEmpty();
@@ -272,7 +286,12 @@ public class MediaShrinkQueue {
 					Log.e(LOG_TAG, "fail to rename temp file to dest file.", e);
 					request.deferred.reject(e);
 				}
-				unbindServiceIfQueueIsEmpty();
+
+				if (DEBUG) {
+					Log.v(LOG_TAG, "RESULT_COMPLETE_MSGID");
+				}
+
+				unbindServiceIfQueueIsEmptyDelayed();
 				break;
 			}
 			case MediaShrinkService.RESULT_RECOVERABLE_ERROR_MSGID: {
@@ -282,7 +301,7 @@ public class MediaShrinkQueue {
 								.getData()
 								.getSerializable(
 										MediaShrinkService.RESULT_RECOVERABLE_ERROR_EXCEPTION));
-				unbindServiceIfQueueIsEmpty();
+				unbindServiceIfQueueIsEmptyDelayed();
 				break;
 			}
 			case MediaShrinkService.RESULT_UNRECOVERABLE_ERROR_MSGID: {
@@ -302,6 +321,13 @@ public class MediaShrinkQueue {
 				break;
 			}
 			}
+		}
+	}
+
+	private class UnbindTask implements Runnable {
+		@Override
+		public void run() {
+			unbindServiceIfQueueIsEmpty();
 		}
 	}
 
