@@ -80,8 +80,11 @@ public class MediaShrinkQueue {
 		deleteWorkFile();
 	}
 
-	public Promise<Void, Exception, Integer> queue(Uri source, Uri dest) {
-		final Deferred<Void, Exception, Integer> deferred = new DeferredObject<>();
+	/**
+	 * Return file size when succeed to shrink.
+     */
+	public Promise<Long, Exception, Integer> queue(Uri source, Uri dest) {
+		final Deferred<Long, Exception, Integer> deferred = new DeferredObject<>();
 		final Request request = new Request(deferred, source, dest);
 		handler.post(new Runnable() {
 			@Override
@@ -301,7 +304,7 @@ public class MediaShrinkQueue {
 					in = new FileInputStream(workingFile);
 					out = context.getContentResolver().openOutputStream(request.dest);
 					Utils.copy(in, out);
-					request.deferred.resolve(null);
+					request.deferred.resolve(workingFile.length());
 				} catch (IOException e) {
 					Log.e(LOG_TAG, "fail to rename temp file to dest file.", e);
 					request.deferred.reject(e);
@@ -358,11 +361,11 @@ public class MediaShrinkQueue {
 	}
 
 	private static class Request {
-		public final Deferred<Void, Exception, Integer> deferred;
+		public final Deferred<Long, Exception, Integer> deferred;
 		public final Uri source;
 		public final Uri dest;
 
-		public Request(Deferred<Void, Exception, Integer> deferred, Uri source,
+		public Request(Deferred<Long, Exception, Integer> deferred, Uri source,
 				Uri dest) {
 			this.deferred = deferred;
 			this.source = source;
