@@ -1,10 +1,5 @@
 package com.lisb.android.mediashrink;
 
-import java.io.Closeable;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.Arrays;
-
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecInfo.CodecCapabilities;
@@ -12,6 +7,13 @@ import android.media.MediaCodecInfo.CodecProfileLevel;
 import android.media.MediaCodecList;
 import android.media.MediaFormat;
 import android.util.Log;
+
+import java.io.Closeable;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.util.Arrays;
 
 public class Utils {
 
@@ -103,6 +105,17 @@ public class Utils {
 
 		codec.stop();
 		codec.release();
+	}
+
+	/**
+	 * NOTE: this method does not close streams.
+     */
+	public static void copy(final InputStream in, final OutputStream out) throws IOException {
+		final byte[] bytes = new byte[1024];
+		int byteCount;
+		while ((byteCount = in.read(bytes)) != -1) {
+			out.write(bytes, 0, byteCount);
+		}
 	}
 
 	/**

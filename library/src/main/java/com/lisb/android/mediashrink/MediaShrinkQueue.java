@@ -22,7 +22,10 @@ import org.jdeferred.Promise.State;
 import org.jdeferred.impl.DeferredObject;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayDeque;
 import java.util.Queue;
 
@@ -32,8 +35,6 @@ public class MediaShrinkQueue {
 			.getSimpleName();
 
 	private static final boolean DEBUG = true;
-
-	private static final String WORKING_DIR = "media-shrink-workspace";
 	private static final String WORKING_FILE = "shrinking";
 
 	private static final long DELAY_RETRY_BIND = 1000;
@@ -55,13 +56,18 @@ public class MediaShrinkQueue {
 	private boolean bound;
 	private boolean unbindInvoked;
 	private IBinder binder;
+	private File workspace;
 
 	public static boolean isSupportedDevice(final Context context) {
 		return MediaShrink.isSupportedDevice(context);
 	}
 
-	public MediaShrinkQueue(Context context, Handler handler, int width,
+	public MediaShrinkQueue(Context context, Handler handler, File workspace, int width,
 			int videoBitrate, int audioBitrate, long durationLimit) {
+		if (workspace.isFile()) {
+			throw new IllegalArgumentException("workspace must be directory.");
+		}
+
 		this.context = context;
 		this.handler = handler;
 		this.width = width;
@@ -70,9 +76,11 @@ public class MediaShrinkQueue {
 		this.durationLimit = durationLimit;
 		this.connection = new MediaShrinkServiceConnection();
 		this.unbindTask = new UnbindTask();
+		this.workspace = workspace;
+		deleteWorkFile();
 	}
 
-	public Promise<Void, Exception, Integer> queue(Uri source, File dest) {
+	public Promise<Void, Exception, Integer> queue(Uri source, Uri dest) {
 		final Deferred<Void, Exception, Integer> deferred = new DeferredObject<>();
 		final Request request = new Request(deferred, source, dest);
 		handler.post(new Runnable() {
@@ -214,12 +222,19 @@ public class MediaShrinkQueue {
 	}
 
 	private File getWorkingFile() throws IOException {
-		final File dir = context.getExternalFilesDir(WORKING_DIR);
-		dir.mkdirs();
-		if (!dir.isDirectory()) {
-			throw new IOException("Can not create Directory.");
+		workspace.mkdirs();
+		if (!workspace.isDirectory()) {
+			throw new IOException("Can not create workspace.");
 		}
-		return new File(dir, WORKING_FILE);
+		return new File(workspace, WORKING_FILE);
+	}
+
+	private void deleteWorkFile() {
+		try {
+			getWorkingFile().delete();
+		} catch (IOException e) {
+			Log.e(LOG_TAG, "Can not delete working file.", e);
+		}
 	}
 
 	private class MediaShrinkServiceConnection implements ServiceConnection {
@@ -279,18 +294,27 @@ public class MediaShrinkQueue {
 				// 動画圧縮の途中でプロセスがkillされた際にゴミファイルが残らないように
 				// 圧縮中は作業ファイルに出力し圧縮完了後に出力先に移動するという手順を取る。
 				final Request request = queue.poll();
+				InputStream in = null;
+				OutputStream out = null;
 				try {
-					getWorkingFile().renameTo(request.dest);
+					final File workingFile = getWorkingFile();
+					in = new FileInputStream(workingFile);
+					out = context.getContentResolver().openOutputStream(request.dest);
+					Utils.copy(in, out);
 					request.deferred.resolve(null);
 				} catch (IOException e) {
 					Log.e(LOG_TAG, "fail to rename temp file to dest file.", e);
 					request.deferred.reject(e);
+				} finally {
+					Utils.closeSilently(out);
+					Utils.closeSilently(in);
 				}
 
 				if (DEBUG) {
 					Log.v(LOG_TAG, "RESULT_COMPLETE_MSGID");
 				}
 
+				deleteWorkFile();
 				unbindServiceIfQueueIsEmptyDelayed();
 				break;
 			}
@@ -301,6 +325,7 @@ public class MediaShrinkQueue {
 								.getData()
 								.getSerializable(
 										MediaShrinkService.RESULT_RECOVERABLE_ERROR_EXCEPTION));
+				deleteWorkFile();
 				unbindServiceIfQueueIsEmptyDelayed();
 				break;
 			}
@@ -312,6 +337,7 @@ public class MediaShrinkQueue {
 								.getData()
 								.getSerializable(
 										MediaShrinkService.RESULT_UNRECOVERABLE_ERROR_EXCEPTION));
+				deleteWorkFile();
 				unbindServiceIfQueueIsEmpty();
 				break;
 			}
@@ -334,10 +360,10 @@ public class MediaShrinkQueue {
 	private static class Request {
 		public final Deferred<Void, Exception, Integer> deferred;
 		public final Uri source;
-		public final File dest;
+		public final Uri dest;
 
 		public Request(Deferred<Void, Exception, Integer> deferred, Uri source,
-				File dest) {
+				Uri dest) {
 			this.deferred = deferred;
 			this.source = source;
 			this.dest = dest;

@@ -1,11 +1,5 @@
 package com.lisb.android.mediashrink.example;
 
-import java.io.File;
-
-import org.jdeferred.DoneCallback;
-import org.jdeferred.FailCallback;
-import org.jdeferred.Promise;
-
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -28,6 +22,12 @@ import android.widget.Toast;
 import com.lisb.android.mediashrink.MediaShrinkQueue;
 import com.lisb.android.mediashrink.example.R.id;
 import com.lisb.android.mediashrink.example.R.layout;
+
+import org.jdeferred.DoneCallback;
+import org.jdeferred.FailCallback;
+import org.jdeferred.Promise;
+
+import java.io.File;
 
 public class ExampleActivity extends Activity implements OnClickListener {
 
@@ -100,8 +100,8 @@ public class ExampleActivity extends Activity implements OnClickListener {
 					Toast.LENGTH_LONG).show();
 		}
 
-		mediaShrinkQueue = new MediaShrinkQueue(this, new Handler(), MAX_WIDTH,
-				VIDEO_BITRATE, AUDIO_BITRATE, DURATION_LIMIT);
+		mediaShrinkQueue = new MediaShrinkQueue(this, new Handler(), getFilesDir(),
+				MAX_WIDTH, VIDEO_BITRATE, AUDIO_BITRATE, DURATION_LIMIT);
 	}
 
 	@Override
@@ -188,7 +188,7 @@ public class ExampleActivity extends Activity implements OnClickListener {
 		progress.setVisibility(View.VISIBLE);
 		getOutput().getParentFile().mkdirs();
 		final Promise<Void, Exception, Integer> promise = mediaShrinkQueue
-				.queue(selectedVideoPath, getOutput());
+				.queue(selectedVideoPath, Uri.fromFile(getOutput()));
 		promise.then(new DoneCallback<Void>() {
 			@Override
 			public void onDone(Void result) {
