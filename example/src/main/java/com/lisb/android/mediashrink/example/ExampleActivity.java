@@ -187,11 +187,11 @@ public class ExampleActivity extends Activity implements OnClickListener {
 	private void shrink() {
 		progress.setVisibility(View.VISIBLE);
 		getOutput().getParentFile().mkdirs();
-		final Promise<Void, Exception, Integer> promise = mediaShrinkQueue
+		final Promise<Long, Exception, Integer> promise = mediaShrinkQueue
 				.queue(selectedVideoPath, Uri.fromFile(getOutput()));
-		promise.then(new DoneCallback<Void>() {
+		promise.then(new DoneCallback<Long>() {
 			@Override
-			public void onDone(Void result) {
+			public void onDone(Long result) {
 				progress.setVisibility(View.GONE);
 				btnPlayReencodedVideo.setEnabled(true);
 				Toast.makeText(ExampleActivity.this, "Success!",
