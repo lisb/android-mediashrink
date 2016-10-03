@@ -103,6 +103,7 @@ public class AudioShrink {
 		long deliverProgressCount = 0;
 
 		try {
+			// create encoder
 			encoder = createEncoder(encoderConfigurationFormat);
 			encoder.start();
 
@@ -110,13 +111,12 @@ public class AudioShrink {
 			encoderOutputBuffers = encoder.getOutputBuffers();
 			encoderOutputBufferInfo = new MediaCodec.BufferInfo();
 
+			// create decorder
 			decoder = createDecoder(currentFormat);
-
 			if (decoder == null) {
 				Log.e(LOG_TAG, "audio decoder not found.");
 				throw new DecodeException("audio decoder not found.");
 			}
-
 			decoder.start();
 
 			decoderInputBuffers = decoder.getInputBuffers();
@@ -136,6 +136,7 @@ public class AudioShrink {
 
 			int sampleCount = 0;
 			while (true) {
+				// read from extractor, write to decoder
 				while (!extractorDone) {
 					final int decoderInputBufferIndex = decoder
 							.dequeueInputBuffer(TIMEOUT_USEC);
@@ -180,6 +181,7 @@ public class AudioShrink {
 					break;
 				}
 
+				// read from decoder
 				while (!decoderDone && pendingDecoderOutputBufferIndex == -1) {
 					final int decoderOutputBufferIndex = decoder
 							.dequeueOutputBuffer(decoderOutputBufferInfo,
@@ -225,6 +227,7 @@ public class AudioShrink {
 					break;
 				}
 
+				// write to encoder
 				while (pendingDecoderOutputBufferIndex != -1) {
 					final int encoderInputBufferIndex = encoder
 							.dequeueInputBuffer(TIMEOUT_USEC);
@@ -262,6 +265,7 @@ public class AudioShrink {
 					break;
 				}
 
+				// write to muxer
 				while (true) {
 					final int encoderOutputBufferIndex = encoder
 							.dequeueOutputBuffer(encoderOutputBufferInfo,
