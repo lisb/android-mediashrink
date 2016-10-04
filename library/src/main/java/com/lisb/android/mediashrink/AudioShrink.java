@@ -18,8 +18,13 @@ public class AudioShrink {
 
 	private static final long TIMEOUT_USEC = 250;
 	private static final String CODEC = "audio/mp4a-latm";
-	private static final int AAC_DEFAULT_PROFILE = MediaCodecInfo.CodecProfileLevel.AACObjectHE;
-	private static final int AAC_SECOND_PROFILE = MediaCodecInfo.CodecProfileLevel.AACObjectLC;
+	// Because AACObjectHE of some encoder(ex. OMX.google.aac.encoder) is buggy,
+	// Don't use AACObjectHE.
+	//
+	// bug example:
+	// - specify mono sound but output stereo sound.
+	// - output wrong time_base_codec.
+	private static final int AAC_PROFILE = MediaCodecInfo.CodecProfileLevel.AACObjectLC;
 	private int bitRate;
 
 	private final MediaExtractor extractor;
@@ -56,34 +61,18 @@ public class AudioShrink {
 				origin.getInteger(MediaFormat.KEY_SAMPLE_RATE), channelCount);
 		// TODO ビットレートが元の値より大きくならないようにする
 		format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
+		format.setInteger(MediaFormat.KEY_AAC_PROFILE, AAC_PROFILE);
 
-		Integer profile = null;
-		// OMX.google.aac.encoder は HE-AAC プロファイルで mono 音声を扱うと
-		// 出力が少しおかしくなりブラウザで再生できなくなる。
-		// ( ffprobe で確認したところ、簡易表示ではチャネル数プロパティが stereo、詳細表示では mono になっている )
-		if (channelCount == 1) {
-			final String mimetype = origin.getString(MediaFormat.KEY_MIME);
-			final MediaCodecInfo encoderInfo = Utils
-					.selectCodec(mimetype, true);
-			if ("OMX.google.aac.encoder".equals(encoderInfo.getName())) {
-				profile = AAC_SECOND_PROFILE;
-			}
-		}
-		if (profile == null) {
-			profile = AAC_DEFAULT_PROFILE;
-		}
-
-		format.setInteger(MediaFormat.KEY_AAC_PROFILE, profile);
-
-		Log.d(LOG_TAG, "create audio encoder configuration format:" + format);
+		Log.d(LOG_TAG, "create audio encoder configuration format:" + Utils.toString(format));
 
 		return format;
 	}
 
 	private void reencode(final int trackIndex, final Integer newTrackIndex,
 			final ReencodeListener listener) throws DecodeException {
-		final MediaFormat currentFormat = extractor.getTrackFormat(trackIndex);
-		final MediaFormat encoderConfigurationFormat = createEncoderConfigurationFormat(currentFormat);
+		final MediaFormat originalFormat = extractor.getTrackFormat(trackIndex);
+		Log.d(LOG_TAG, "original format:" + Utils.toString(originalFormat));
+		final MediaFormat encoderConfigurationFormat = createEncoderConfigurationFormat(originalFormat);
 
 		MediaCodec encoder = null;
 		MediaCodec decoder = null;
@@ -97,7 +86,7 @@ public class AudioShrink {
 		MediaCodec.BufferInfo encoderOutputBufferInfo = null;
 
 		// 進捗取得に利用
-		final float durationUs = currentFormat
+		final float durationUs = originalFormat
 				.getLong(MediaFormat.KEY_DURATION);
 		final long startTimeNs = System.nanoTime();
 		long deliverProgressCount = 0;
@@ -112,7 +101,7 @@ public class AudioShrink {
 			encoderOutputBufferInfo = new MediaCodec.BufferInfo();
 
 			// create decorder
-			decoder = createDecoder(currentFormat);
+			decoder = createDecoder(originalFormat);
 			if (decoder == null) {
 				Log.e(LOG_TAG, "audio decoder not found.");
 				throw new DecodeException("audio decoder not found.");
