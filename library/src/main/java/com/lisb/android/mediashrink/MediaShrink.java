@@ -14,7 +14,7 @@ import android.os.Looper;
 import android.util.Log;
 
 /**
- * WARN: {@link MediaShrink#shrink(Uri)} のスレッドについて制約
+ * WARN: {@link MediaShrink#shrink(Uri, String, UnrecoverableErrorCallback)} のスレッドについて制約
  * 
  * {@link MediaShrink} の呼び出し元のスレッドは {@link Looper} を持たない {@link Thread}
  * である必要がある。 <br/>
@@ -41,7 +41,6 @@ class MediaShrink {
 	private long durationLimit = -1;
 	private int audioBitRate;
 	private int videoBitRate;
-	private String output;
 	private OnProgressListener onProgressListener;
 
 	static boolean isSupportedDevice(final Context context) {
@@ -60,7 +59,7 @@ class MediaShrink {
 		this.context = context;
 	}
 
-	public void shrink(final Uri src,
+	public void shrink(final Uri inputUri, final String outputPath,
 			final UnrecoverableErrorCallback errorCallback) throws IOException,
 			TooMovieLongException {
 		MediaExtractor extractor = null;
@@ -74,8 +73,8 @@ class MediaShrink {
 			metadataRetriever = new MediaMetadataRetriever();
 
 			try {
-				extractor.setDataSource(context, src, null);
-				metadataRetriever.setDataSource(context, src);
+				extractor.setDataSource(context, inputUri, null);
+				metadataRetriever.setDataSource(context, inputUri);
 			} catch (IOException e) {
 				Log.e(LOG_TAG, "fail to read input.", e);
 				throw new IOException("fail to read input.", e);
@@ -120,7 +119,7 @@ class MediaShrink {
 			}
 
 			try {
-				muxer = new MediaMuxer(output,
+				muxer = new MediaMuxer(outputPath,
 						MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
 				// トラックの作成。
 				Integer newVideoTrack = null;
@@ -251,13 +250,6 @@ class MediaShrink {
 
 	private boolean isAudioFormat(MediaFormat format) {
 		return format.getString(MediaFormat.KEY_MIME).startsWith("audio/");
-	}
-
-	/**
-	 * 出力先の指定。(設定必須)
-	 */
-	public void setOutput(String output) {
-		this.output = output;
 	}
 
 	/**

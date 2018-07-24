@@ -1,9 +1,5 @@
 package com.lisb.android.mediashrink;
 
-import java.io.IOException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-
 import android.app.Service;
 import android.content.Intent;
 import android.net.Uri;
@@ -18,6 +14,10 @@ import android.os.Process;
 import android.os.RemoteException;
 import android.util.Log;
 
+import java.io.IOException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 public class MediaShrinkService extends Service {
 
 	public static final String EXTRA_DEST_FILEPATH = "output";
@@ -27,7 +27,8 @@ public class MediaShrinkService extends Service {
 	public static final String EXTRA_DURATION_LIMIT = "duration-limit";
 
 	public static final int REQUEST_SHRINK_MSGID = 1;
-	public static final String REQUEST_SHRINK_SOURCE_URI = "input";
+	public static final String REQUEST_SHRINK_INPUT_URI = "input";
+	public static final String REQUEST_SHRINK_OUTPUT_PATH = "output";
 
 	/** arg1 は進捗率 */
 	public static final int RESULT_PROGRESS_MSGID = 1;
@@ -67,7 +68,6 @@ public class MediaShrinkService extends Service {
 	@Override
 	public IBinder onBind(Intent intent) {
 		Log.v(LOG_TAG, "onBind");
-		mediaShrink.setOutput(intent.getStringExtra(EXTRA_DEST_FILEPATH));
 		mediaShrink.setWidth(intent.getIntExtra(EXTRA_WIDTH, -1));
 		mediaShrink
 				.setVideoBitRate(intent.getIntExtra(EXTRA_VIDEO_BITRATE, -1));
@@ -110,6 +110,7 @@ public class MediaShrinkService extends Service {
 
 		@Override
 		public void handleMessage(final Message msg) {
+			Log.d(LOG_TAG, "ReceiveRequestHandler#handleMessage. what:" + msg.what);
 			switch (msg.what) {
 			case REQUEST_SHRINK_MSGID:
 				currentMessage = msg;
@@ -117,14 +118,16 @@ public class MediaShrinkService extends Service {
 					@Override
 					public void run() {
 						try {
-							final Uri source = (Uri) currentMessage.getData()
-									.getParcelable(REQUEST_SHRINK_SOURCE_URI);
-							mediaShrink.shrink(source,
+							final Uri inputUri = currentMessage.getData()
+									.getParcelable(REQUEST_SHRINK_INPUT_URI);
+							final String outputPath = currentMessage.getData()
+                                    .getString(REQUEST_SHRINK_OUTPUT_PATH);
+							mediaShrink.shrink(inputUri, outputPath,
 									ReceiveRequestHandler.this);
 							respondSafely(Message.obtain(null,
 									RESULT_COMPLETE_MSGID));
 						} catch (IOException | TooMovieLongException e) {
-							Log.e(LOG_TAG, "fail to media shrink", e);
+							Log.e(LOG_TAG, "Failed to media shrink", e);
 							final Message response = Message.obtain();
 							response.what = RESULT_RECOVERABLE_ERROR_MSGID;
 							final Bundle data = new Bundle();
@@ -156,9 +159,10 @@ public class MediaShrinkService extends Service {
 
 		private void respondSafely(final Message message) {
 			try {
+				Log.d(LOG_TAG, "respondSafely. type:" + message.what);
 				currentMessage.replyTo.send(message);
 			} catch (RemoteException e) {
-				Log.e(LOG_TAG, "fail to respond", e);
+				Log.e(LOG_TAG, "Failed to respond", e);
 			}
 		}
 
@@ -170,7 +174,7 @@ public class MediaShrinkService extends Service {
 
 		@Override
 		public void onUnrecoverableError(Throwable e) {
-			Log.e(LOG_TAG, "unrecoverable error occured.", e);
+			Log.e(LOG_TAG, "Unrecoverable error occurred.", e);
 			final Message response = Message.obtain();
 			response.what = RESULT_UNRECOVERABLE_ERROR_MSGID;
 			final Bundle data = new Bundle();

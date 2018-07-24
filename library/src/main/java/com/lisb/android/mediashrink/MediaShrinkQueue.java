@@ -31,11 +31,8 @@ import java.util.Queue;
 
 public class MediaShrinkQueue {
 
-	private static final String LOG_TAG = MediaShrinkQueue.class
-			.getSimpleName();
-
-	private static final boolean DEBUG = true;
-	private static final String WORKING_FILE = "shrinking";
+	private static final String LOG_TAG = "MediaShrinkQueue";
+	private static final String WORKING_FILE_PREFIX  = "working_";
 
 	private static final long DELAY_RETRY_BIND = 1000;
 	// delay unbind to reuse service
@@ -77,7 +74,7 @@ public class MediaShrinkQueue {
 		this.connection = new MediaShrinkServiceConnection();
 		this.unbindTask = new UnbindTask();
 		this.workspace = workspace;
-		deleteWorkFile();
+		cleanWorkspace();
 	}
 
 	/**
@@ -85,30 +82,35 @@ public class MediaShrinkQueue {
      */
 	public Promise<Long, Exception, Integer> queue(Uri source, Uri dest) {
 		final Deferred<Long, Exception, Integer> deferred = new DeferredObject<>();
-		final Request request = new Request(deferred, source, dest);
-		handler.post(new Runnable() {
-			@Override
-			public void run() {
-				if (isUnbinding()) {
-					handler.postDelayed(this, DELAY_RETRY_BIND);
-					return;
-				}
+		try {
+			final Request request = new Request(deferred, source, dest, createWorkingFile());
+			handler.post(new Runnable() {
+				@Override
+				public void run() {
+					if (isUnbinding()) {
+						handler.postDelayed(this, DELAY_RETRY_BIND);
+						return;
+					}
 
-				try {
-					bindService();
-				} catch (IOException e) {
-					Log.e(LOG_TAG, "Fail to bind service.", e);
-					request.deferred.reject(e);
-					return;
-				}
+					try {
+						bindService();
+					} catch (IOException e) {
+						Log.e(LOG_TAG, "Failed to bind service.", e);
+						request.deferred.reject(e);
+						return;
+					}
 
-				queue.add(request);
-				if (sendMessenger != null) {
-					sendRequest(request);
+					queue.add(request);
+					if (sendMessenger != null) {
+						sendRequest(request);
 
+					}
 				}
-			}
-		});
+			});
+		} catch (IOException e) {
+			Log.e(LOG_TAG, "Failed to create working file", e);
+			deferred.reject(e);
+		}
 		return deferred;
 	}
 
@@ -121,11 +123,8 @@ public class MediaShrinkQueue {
 		}
 
 		checkWorkingDirAvailable(context);
-		final File workingFile = getWorkingFile();
 
 		final Intent intent = new Intent(context, MediaShrinkService.class);
-		intent.putExtra(MediaShrinkService.EXTRA_DEST_FILEPATH,
-				workingFile.getAbsolutePath());
 		intent.putExtra(MediaShrinkService.EXTRA_WIDTH, width);
 		intent.putExtra(MediaShrinkService.EXTRA_VIDEO_BITRATE, videoBitrate);
 		intent.putExtra(MediaShrinkService.EXTRA_AUDIO_BITRATE, audioBitrate);
@@ -161,8 +160,8 @@ public class MediaShrinkQueue {
 		final Message m = Message.obtain(null,
 				MediaShrinkService.REQUEST_SHRINK_MSGID);
 		final Bundle data = new Bundle();
-		data.putParcelable(MediaShrinkService.REQUEST_SHRINK_SOURCE_URI,
-				r.source);
+		data.putParcelable(MediaShrinkService.REQUEST_SHRINK_INPUT_URI, r.source);
+		data.putString(MediaShrinkService.REQUEST_SHRINK_OUTPUT_PATH, r.workingFile.getAbsolutePath());
 		m.setData(data);
 		m.replyTo = receiveMessenger;
 		try {
@@ -224,19 +223,18 @@ public class MediaShrinkQueue {
 		}
 	}
 
-	private File getWorkingFile() throws IOException {
+	private File createWorkingFile() throws IOException {
 		workspace.mkdirs();
 		if (!workspace.isDirectory()) {
 			throw new IOException("Can not create workspace.");
 		}
-		return new File(workspace, WORKING_FILE);
+		return File.createTempFile(WORKING_FILE_PREFIX, null, workspace);
 	}
 
-	private void deleteWorkFile() {
-		try {
-			getWorkingFile().delete();
-		} catch (IOException e) {
-			Log.e(LOG_TAG, "Can not delete working file.", e);
+	private void cleanWorkspace() {
+		Log.d(LOG_TAG, "cleanWorkspace");
+		for (File file : workspace.listFiles()) {
+			file.delete();
 		}
 	}
 
@@ -275,6 +273,7 @@ public class MediaShrinkQueue {
 						request.deferred.reject(new RuntimeException(
 								"process killed."));
 					}
+					request.workingFile.delete();
 					bound = false;
 					sendMessenger = null;
 					receiveMessenger = null;
@@ -292,6 +291,7 @@ public class MediaShrinkQueue {
 
 		@Override
 		public void handleMessage(Message msg) {
+			Log.d(LOG_TAG, "ReceiveResultHandler#handleMessage. what:" + msg.what);
 			switch (msg.what) {
 			case MediaShrinkService.RESULT_COMPLETE_MSGID: {
 				// 動画圧縮の途中でプロセスがkillされた際にゴミファイルが残らないように
@@ -300,24 +300,18 @@ public class MediaShrinkQueue {
 				InputStream in = null;
 				OutputStream out = null;
 				try {
-					final File workingFile = getWorkingFile();
-					in = new FileInputStream(workingFile);
+					in = new FileInputStream(request.workingFile);
 					out = context.getContentResolver().openOutputStream(request.dest);
 					Utils.copy(in, out);
-					request.deferred.resolve(workingFile.length());
+					request.deferred.resolve(request.workingFile.length());
 				} catch (IOException e) {
-					Log.e(LOG_TAG, "fail to rename temp file to dest file.", e);
+					Log.e(LOG_TAG, "Failed to rename temp file to dest file.", e);
 					request.deferred.reject(e);
 				} finally {
 					Utils.closeSilently(out);
 					Utils.closeSilently(in);
 				}
-
-				if (DEBUG) {
-					Log.v(LOG_TAG, "RESULT_COMPLETE_MSGID");
-				}
-
-				deleteWorkFile();
+				request.workingFile.delete();
 				unbindServiceIfQueueIsEmptyDelayed();
 				break;
 			}
@@ -328,19 +322,18 @@ public class MediaShrinkQueue {
 								.getData()
 								.getSerializable(
 										MediaShrinkService.RESULT_RECOVERABLE_ERROR_EXCEPTION));
-				deleteWorkFile();
+				request.workingFile.delete();
 				unbindServiceIfQueueIsEmptyDelayed();
 				break;
 			}
 			case MediaShrinkService.RESULT_UNRECOVERABLE_ERROR_MSGID: {
 				// rebind や request のキューからの除去は onServiceDisconnected に任せる
 				final Request request = queue.peek();
-				request.deferred
-						.reject((Exception) msg
+				request.deferred.reject((Exception) msg
 								.getData()
 								.getSerializable(
 										MediaShrinkService.RESULT_UNRECOVERABLE_ERROR_EXCEPTION));
-				deleteWorkFile();
+				request.workingFile.delete();
 				unbindServiceIfQueueIsEmpty();
 				break;
 			}
@@ -364,12 +357,14 @@ public class MediaShrinkQueue {
 		public final Deferred<Long, Exception, Integer> deferred;
 		public final Uri source;
 		public final Uri dest;
+		public final File workingFile;
 
 		public Request(Deferred<Long, Exception, Integer> deferred, Uri source,
-				Uri dest) {
+				Uri dest, File workingFile) {
 			this.deferred = deferred;
 			this.source = source;
 			this.dest = dest;
+			this.workingFile = workingFile;
 		}
 
 	}
