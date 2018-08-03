@@ -3,7 +3,7 @@ apply plugin: 'com.github.dcendents.android-maven'
 
 group = 'com.lisb.android.mediashrink'
 archivesBaseName = 'mediashrink'
-version = '1.1.1-SNAPSHOT'
+version = '1.1.1'
 
 android {
     compileSdkVersion 21
@@ -33,4 +33,3 @@ task androidSourcesJar(type: Jar) {
 artifacts {
    archives androidSourcesJar
 }
-
