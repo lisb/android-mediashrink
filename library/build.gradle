@@ -6,12 +6,12 @@ archivesBaseName = 'mediashrink'
 version = '1.2.0-SNAPSHOT'
 
 android {
-    compileSdkVersion 21
-    buildToolsVersion "21.1.2"
+    compileSdkVersion android_compile_sdk_version
+    buildToolsVersion android_build_tools_version
 
     defaultConfig {
-        minSdkVersion 18
-        targetSdkVersion 21
+        minSdkVersion android_min_sdk_version
+        targetSdkVersion android_target_sdk_version
     }
 
     compileOptions {
@@ -21,8 +21,8 @@ android {
 }
 
 dependencies {
-    compile fileTree(dir: 'libs', include: '*.jar')
-    compile 'org.jdeferred:jdeferred-core:1.2.5-lisb-1'
+    api fileTree(dir: 'libs', include: '*.jar')
+    api 'org.jdeferred:jdeferred-core:1.2.5-lisb-1'
 }
 
 task androidSourcesJar(type: Jar) {

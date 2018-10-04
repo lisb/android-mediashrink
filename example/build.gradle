@@ -1,19 +1,19 @@
 apply plugin: 'com.android.application'
 
 android {
-    compileSdkVersion 19
-    buildToolsVersion "21.1.2"
+    compileSdkVersion android_compile_sdk_version
+    buildToolsVersion android_build_tools_version
 
     defaultConfig {
+        minSdkVersion android_min_sdk_version
+        targetSdkVersion android_target_sdk_version
         applicationId "com.lisb.android.mediashrink.example"
-        minSdkVersion 18
-        targetSdkVersion 19
         versionCode 1
         versionName "1.0"
     }
 }
 
 dependencies {
-    compile project(':library')
-    compile 'org.slf4j:slf4j-android:1.7.7'
+    implementation project(':library')
+    implementation 'org.slf4j:slf4j-android:1.7.21'
 }
