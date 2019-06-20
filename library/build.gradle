@@ -3,7 +3,7 @@ apply plugin: 'com.github.dcendents.android-maven'
 
 group = 'com.lisb.android.mediashrink'
 archivesBaseName = 'mediashrink'
-version = '1.2.0'
+version = '1.2.1-SNAPSHOT'
 
 android {
     compileSdkVersion android_compile_sdk_version
