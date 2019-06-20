@@ -122,8 +122,6 @@ public class MediaShrinkQueue {
             return;
         }
 
-        checkWorkingDirAvailable(context);
-
         final Intent intent = new Intent(context, MediaShrinkService.class);
         intent.putExtra(MediaShrinkService.EXTRA_WIDTH, width);
         intent.putExtra(MediaShrinkService.EXTRA_VIDEO_BITRATE, videoBitrate);
@@ -213,14 +211,6 @@ public class MediaShrinkQueue {
 
         Log.v(LOG_TAG, "isUnbinding");
         return true;
-    }
-
-    private static void checkWorkingDirAvailable(final Context context)
-            throws ExternalStageNotMounted {
-        if (!Environment.MEDIA_MOUNTED.equals(Environment
-                .getExternalStorageState())) {
-            throw new ExternalStageNotMounted("external storage not mounted.");
-        }
     }
 
     private File createWorkingFile() throws IOException {
