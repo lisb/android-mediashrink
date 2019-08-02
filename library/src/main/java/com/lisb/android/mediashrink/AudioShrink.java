@@ -133,14 +133,25 @@ public class AudioShrink {
 						break;
 					}
 					final ByteBuffer decoderInputBuffer = decoderInputBuffers[decoderInputBufferIndex];
-					final int size = extractor.readSampleData(
-							decoderInputBuffer, 0);
-
+					final int size = extractor.readSampleData(decoderInputBuffer, 0);
+					// extractor.advance() より先に行うこと
 					final long pts = extractor.getSampleTime();
+					int sampleFlags = extractor.getSampleFlags();
+
 					if (VERBOSE) {
 						Log.v(LOG_TAG, "audio extractor output. size:" + size
 								+ ", sample time:" + pts + ", sample flags:"
-								+ extractor.getSampleFlags());
+								+ sampleFlags);
+					}
+
+					extractorDone = !extractor.advance();
+					if (extractorDone) {
+						Log.d(LOG_TAG, "audio extractor: EOS, size:" + size + ", sampleCount:" + sampleCount);
+						sampleFlags |= MediaCodec.BUFFER_FLAG_END_OF_STREAM;
+						if (sampleCount == 0) {
+							Log.e(LOG_TAG, "no audio sample found.");
+							throw new DecodeException("no audio sample found.");
+						}
 					}
 
 					if (size >= 0) {
@@ -152,21 +163,11 @@ public class AudioShrink {
 							lastExtracterOutputPts = pts;
 						}
 
-						decoder.queueInputBuffer(decoderInputBufferIndex, 0,
-								size, pts, extractor.getSampleFlags());
+						decoder.queueInputBuffer(decoderInputBufferIndex, 0, size, pts, sampleFlags);
+					} else if (extractorDone) {
+						decoder.queueInputBuffer(decoderInputBufferIndex, 0, 0, 0, sampleFlags);
 					}
-					extractorDone = !extractor.advance();
-					if (extractorDone) {
-						Log.d(LOG_TAG, "audio extractor: EOS");
 
-						if (sampleCount == 0) {
-							Log.e(LOG_TAG, "no audio sample found.");
-							throw new DecodeException("no audio sample found.");
-						}
-
-						decoder.queueInputBuffer(decoderInputBufferIndex, 0, 0,
-								0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-					}
 					break;
 				}
 

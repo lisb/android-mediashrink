@@ -221,28 +221,31 @@ public class VideoShrink {
 						break;
 					}
 					final ByteBuffer decoderInputBuffer = decoderInputBuffers[decoderInputBufferIndex];
-					final int size = extractor.readSampleData(
-							decoderInputBuffer, 0);
+					final int size = extractor.readSampleData(decoderInputBuffer, 0);
+					// extractor.advance() より先に行うこと
+					final long sampleTime = extractor.getSampleTime();
+					int sampleFlags = extractor.getSampleFlags();
 
 					if (VERBOSE) {
 						Log.v(LOG_TAG,
 								"video extractor output. size:" + size
 										+ ", sample time:"
-										+ extractor.getSampleTime()
+										+ sampleTime
 										+ ", sample flags:"
-										+ extractor.getSampleFlags());
+										+ sampleFlags);
+					}
+
+					extractorDone = !extractor.advance();
+					if (extractorDone) {
+						Log.d(LOG_TAG, "video extractor: EOS, size:" + size);
+						sampleFlags |=  MediaCodec.BUFFER_FLAG_END_OF_STREAM;
 					}
 
 					if (size >= 0) {
-						decoder.queueInputBuffer(decoderInputBufferIndex, 0,
-								size, extractor.getSampleTime(),
-								extractor.getSampleFlags());
-					}
-					extractorDone = !extractor.advance();
-					if (extractorDone) {
-						Log.d(LOG_TAG, "video extractor: EOS");
-						decoder.queueInputBuffer(decoderInputBufferIndex, 0, 0,
-								0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+						decoder.queueInputBuffer(decoderInputBufferIndex, 0, size, sampleTime,
+								sampleFlags);
+					} else if (extractorDone) {
+						decoder.queueInputBuffer(decoderInputBufferIndex, 0, 0, 0, sampleFlags);
 					}
 					break;
 				}
