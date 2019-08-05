@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class VideoShrink {
 
-	private static final String TAG = VideoShrink.class.getSimpleName();
+	private static final String TAG = "VideoShrink";
 	private static final boolean VERBOSE = false;
 	private static final boolean DEBUG = false; // デバッグ用にスナップショットを出力する
 

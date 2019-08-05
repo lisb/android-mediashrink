@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class AudioShrink {
 
-	private static final String TAG = AudioShrink.class.getSimpleName();
+	private static final String TAG = "AudioShrink";
 	private static final boolean VERBOSE = false;
 
 	private static final long TIMEOUT_USEC = 250;

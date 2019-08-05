@@ -30,7 +30,7 @@ import android.util.Log;
  */
 class MediaShrink {
 
-	private static final String TAG = MediaShrink.class.getSimpleName();
+	private static final String TAG = "MediaShrink";
 
 	private static final int PROGRESS_ADD_TRACK = 10;
 	private static final int PROGRESS_WRITE_CONTENT = 40;

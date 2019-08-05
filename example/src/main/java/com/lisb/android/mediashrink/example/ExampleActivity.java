@@ -31,7 +31,7 @@ import java.io.File;
 
 public class ExampleActivity extends Activity implements OnClickListener {
 
-	private static final String TAG = ExampleActivity.class.getSimpleName();
+	private static final String TAG = "ExampleActivity";
 
 	private static final int MAX_WIDTH = 384;
 	private static final int VIDEO_BITRATE = 500 * 1024;

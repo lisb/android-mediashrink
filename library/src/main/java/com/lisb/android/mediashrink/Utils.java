@@ -17,7 +17,7 @@ import java.util.Arrays;
 
 public class Utils {
 
-	private static final String TAG = Utils.class.getSimpleName();
+	private static final String TAG = "Utils";
 
 	public static void printCodecCapabilities(boolean encoder) {
 		Log.v(TAG, "print codec capablities.");
