@@ -1,14 +1,11 @@
 package com.lisb.android.mediashrink.example;
 
-import android.app.Activity;
+import android.annotation.SuppressLint;
+import android.content.ContentResolver;
 import android.content.Intent;
-import android.content.SharedPreferences;
-import android.content.SharedPreferences.Editor;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
-import android.preference.PreferenceManager;
 import android.provider.MediaStore;
 import android.view.ContextMenu;
 import android.view.ContextMenu.ContextMenuInfo;
@@ -17,6 +14,10 @@ import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.FileProvider;
 
 import com.lisb.android.mediashrink.MediaShrinkQueue;
 import com.lisb.android.mediashrink.example.R.id;
@@ -41,7 +42,7 @@ public class ExampleActivity extends AppCompatActivity implements OnClickListene
 
 	private static final String EXPORT_DIR = "exports";
 	private static final String EXPORT_FILE = "video.mp4";
-	private static final String SPREF_SELECTED_FILEPATH = "filepath";
+	private static final String SAVED_SELECTED_URI = "selected_uri";
 
 	private static final int RCODE_CAPTURE_VIDEO = 1;
 	private static final int RCODE_SELECT_FROM_GALLARY = 2;
@@ -52,9 +53,10 @@ public class ExampleActivity extends AppCompatActivity implements OnClickListene
 	private View btnPlaySelectedVideo;
 	private View btnPlayReencodedVideo;
 
-	private Uri selectedVideoPath;
+	private Uri selectedVideoUri;
 	private MediaShrinkQueue mediaShrinkQueue;
 
+	@SuppressLint("SetTextI18n")
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
@@ -76,29 +78,17 @@ public class ExampleActivity extends AppCompatActivity implements OnClickListene
 		btnPlayReencodedVideo.setOnClickListener(this);
 
 		progress = findViewById(android.R.id.progress);
-		txtSelectedVideoPath = (TextView) findViewById(id.txt_selected_video_path);
+		txtSelectedVideoPath = findViewById(id.txt_selected_video_path);
 
-		final SharedPreferences prefs = getSharedPreferences();
-		final String filepath = prefs.getString(SPREF_SELECTED_FILEPATH, null);
-		if (filepath != null) {
-			onFileSelected(Uri.parse(filepath), false);
+		if (savedInstanceState != null) {
+			final Uri selectedUri = savedInstanceState.getParcelable(SAVED_SELECTED_URI);
+			if (selectedUri != null) {
+				onFileSelected(selectedUri);
+			}
 		}
 
-		if (getOutput().exists()) {
+		if (getOutputFile().exists()) {
 			btnPlayReencodedVideo.setEnabled(true);
-		}
-
-		if (!Environment.MEDIA_MOUNTED.equals(Environment
-				.getExternalStorageState())) {
-			// No External Storage
-			txtSelectedVideoPath.setText("External storage is not mounted.");
-			btnCaptureVideo.setEnabled(false);
-			btnPlaySelectedVideo.setEnabled(false);
-			btnStartReencoding.setEnabled(false);
-			btnPlayReencodedVideo.setEnabled(false);
-
-			Toast.makeText(this, "Please mount external storage.",
-					Toast.LENGTH_LONG).show();
 		}
 
 		mediaShrinkQueue = new MediaShrinkQueue(this, new Handler(), getFilesDir(),
@@ -106,17 +96,22 @@ public class ExampleActivity extends AppCompatActivity implements OnClickListene
 	}
 
 	@Override
+	protected void onSaveInstanceState(@NonNull Bundle outState) {
+		super.onSaveInstanceState(outState);
+		outState.putParcelable(SAVED_SELECTED_URI, selectedVideoUri);
+	}
+
+	@Override
 	public void onCreateContextMenu(ContextMenu menu, View v,
 			ContextMenuInfo menuInfo) {
 		super.onCreateContextMenu(menu, v, menuInfo);
-		switch (v.getId()) {
-		case id.btn_select_video:
+		if (v.getId() == id.btn_select_video) {
 			getMenuInflater().inflate(R.menu.context_menu_select_video, menu);
 		}
 	}
 
 	@Override
-	public boolean onContextItemSelected(MenuItem item) {
+	public boolean onContextItemSelected(@NonNull MenuItem item) {
 		switch (item.getItemId()) {
 		case id.select_from_gallary: {
 			final Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
@@ -150,14 +145,13 @@ public class ExampleActivity extends AppCompatActivity implements OnClickListene
 	@Override
 	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
 		super.onActivityResult(requestCode, resultCode, data);
-		switch (resultCode) {
-		case RESULT_OK:
-			onFileSelected(data.getData(), true);
+		if (resultCode == RESULT_OK) {
+			onFileSelected(data.getData());
 		}
 	}
 
-	private void onFileSelected(final Uri uri, final boolean savePreference) {
-		this.selectedVideoPath = uri;
+	private void onFileSelected(final Uri uri) {
+		this.selectedVideoUri = uri;
 
 		if (uri != null) {
 			txtSelectedVideoPath.setText(uri.toString());
@@ -168,35 +162,19 @@ public class ExampleActivity extends AppCompatActivity implements OnClickListene
 			btnPlaySelectedVideo.setEnabled(false);
 			btnStartReencoding.setEnabled(false);
 		}
-
-		if (savePreference) {
-			final Editor editor = getSharedPreferences().edit();
-			if (uri != null) {
-				editor.putString(SPREF_SELECTED_FILEPATH,
-						selectedVideoPath.toString());
-			} else {
-				editor.remove(SPREF_SELECTED_FILEPATH);
-			}
-			editor.commit();
-		}
-	}
-
-	private SharedPreferences getSharedPreferences() {
-		return PreferenceManager.getDefaultSharedPreferences(this);
 	}
 
 	private void shrink() {
 		progress.setVisibility(View.VISIBLE);
-		getOutput().getParentFile().mkdirs();
+		getOutputDir().mkdirs();
 		final Promise<Long, Exception, Integer> promise = mediaShrinkQueue
-				.queue(selectedVideoPath, Uri.fromFile(getOutput()));
+				.queue(selectedVideoUri, Uri.fromFile(getOutputFile()));
 		promise.then(new DoneCallback<Long>() {
 			@Override
 			public void onDone(Long result) {
 				progress.setVisibility(View.GONE);
 				btnPlayReencodedVideo.setEnabled(true);
-				Toast.makeText(ExampleActivity.this, "Success!",
-						Toast.LENGTH_SHORT).show();
+				Toast.makeText(ExampleActivity.this, "Success!", Toast.LENGTH_SHORT).show();
 			}
 		}).fail(new FailCallback<Exception>() {
 			@Override
@@ -205,26 +183,32 @@ public class ExampleActivity extends AppCompatActivity implements OnClickListene
 
 				progress.setVisibility(View.GONE);
 				btnPlayReencodedVideo.setEnabled(true);
-				getOutput().delete();
-
+				getOutputFile().delete();
 				String errorMessage = result.getMessage();
 				if (errorMessage == null || errorMessage.isEmpty()) {
 					errorMessage = "Failed to shrink.";
 				}
-
-				Toast.makeText(ExampleActivity.this, errorMessage,
-						Toast.LENGTH_SHORT).show();
+				Toast.makeText(ExampleActivity.this, errorMessage, Toast.LENGTH_SHORT).show();
 			}
 		});
 	}
 
-	private File getOutput() {
-		return new File(getExternalFilesDir(EXPORT_DIR), EXPORT_FILE);
+	@NonNull
+	private File getOutputDir() {
+		return new File(getFilesDir(), EXPORT_DIR);
+	}
+
+	@NonNull
+	private File getOutputFile() {
+		return new File(getOutputDir(), EXPORT_FILE);
 	}
 
 	private void playVideo(Uri uri) {
 		final Intent intent = new Intent(Intent.ACTION_VIEW);
 		intent.setDataAndType(uri, "video/*");
+		if (ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())) {
+			intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+		}
 		startActivity(intent);
 	}
 
@@ -233,20 +217,20 @@ public class ExampleActivity extends AppCompatActivity implements OnClickListene
 	@Override
 	public void onClick(View v) {
 		switch (v.getId()) {
-		case id.btn_select_video:
-			v.showContextMenu();
-			break;
-		case id.btn_start_reencoding:
-			shrink();
-			break;
-		case id.btn_play_selected_video:
-			playVideo(selectedVideoPath);
-			break;
-		case id.btn_play_reencoded_video:
-			playVideo(Uri.fromFile(getOutput()));
-			break;
+			case id.btn_select_video:
+				v.showContextMenu();
+				break;
+			case id.btn_start_reencoding:
+				shrink();
+				break;
+			case id.btn_play_selected_video:
+				playVideo(selectedVideoUri);
+				break;
+			case id.btn_play_reencoded_video:
+				playVideo(FileProvider.getUriForFile(this,
+						"com.lisb.android.mediashrink.example.fileprovider", getOutputFile()));
+				break;
 		}
-
 	}
 
 }
