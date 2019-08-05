@@ -30,7 +30,7 @@ import java.io.File;
 
 import timber.log.Timber;
 
-public class ExampleActivity extends Activity implements OnClickListener {
+public class ExampleActivity extends AppCompatActivity implements OnClickListener {
 
 	private static final String TAG = "ExampleActivity";
 
