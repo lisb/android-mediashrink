@@ -11,7 +11,9 @@ import android.media.MediaMuxer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Looper;
-import android.util.Log;
+
+import timber.log.Timber;
+
 
 /**
  * WARN: {@link MediaShrink#shrink(Uri, String, UnrecoverableErrorCallback)} のスレッドについて制約
@@ -76,8 +78,8 @@ class MediaShrink {
 				extractor.setDataSource(context, inputUri, null);
 				metadataRetriever.setDataSource(context, inputUri);
 			} catch (IOException e) {
-				Log.e(TAG, "fail to read input.", e);
-				throw new IOException("fail to read input.", e);
+				Timber.tag(TAG).e(e, "Failed to read input.");
+				throw new IOException("Failed to read input.", e);
 			}
 
 			checkLength(metadataRetriever);
@@ -90,14 +92,11 @@ class MediaShrink {
 			Integer audioTrack = null;
 			for (int i = 0, length = extractor.getTrackCount(); i < length; i++) {
 				final MediaFormat format = extractor.getTrackFormat(i);
-				Log.d(TAG,
-						"track [" + i + "] format: " + Utils.toString(format));
+				Timber.tag(TAG).d("track[%d] format: %s", i, Utils.toString(format));
 				if (isVideoFormat(format)) {
 					if (videoTrack != null) {
 						// MediaMuxer がビデオ、オーディオそれぞれ1つずつしか含めることができないため。
-						Log.w(TAG,
-								"drop track. support one video track only. track:"
-										+ i);
+						Timber.tag(TAG).w("drop track. support one video track only. track:%d", i);
 						continue;
 					}
 					videoTrack = i;
@@ -105,16 +104,14 @@ class MediaShrink {
 				} else if (isAudioFormat(format)) {
 					if (audioTrack != null) {
 						// MediaMuxer がビデオ、オーディオそれぞれ1つずつしか含めることができないため。
-						Log.w(TAG,
-								"drop track. support one audio track only. track:"
-										+ i);
+						Timber.tag(TAG).w("drop track. support one audio track only. track:%d", i);
 						continue;
 					}
 					audioTrack = i;
 					maxProgress += PROGRESS_ADD_TRACK + PROGRESS_WRITE_CONTENT;
 				} else {
-					Log.e(TAG, "drop track. unsupported format. track:" + i
-							+ ", format:" + Utils.toString(format));
+					Timber.tag(TAG).e("drop track. unsupported format. track:%d, format:%s",
+							i, Utils.toString(format));
 				}
 			}
 
@@ -184,13 +181,12 @@ class MediaShrink {
 					deliverProgress(progress, maxProgress);
 				}
 			} catch (IOException e) {
-				Log.e(TAG, "fail to write output.", e);
-				throw new IOException("fail to write output.", e);
+				Timber.tag(TAG).e(e, "Failed to write output.");
+				throw new IOException("Failed to write output.", e);
 			} catch (Throwable e) {
 				// muxer はきちんと書き込みせずに閉じると RuntimeException を発行するので
 				// muxer を開いたあとは全ての例外が unrecoverable。
-				Log.e(TAG, "unrecoverable error occured on media shrink.",
-						e);
+				Timber.tag(TAG).e(e, "Unrecoverable error occurred on media shrink.");
 				errorCallback.onUnrecoverableError(e);
 			} finally {
 				if (muxer != null) {
@@ -202,7 +198,7 @@ class MediaShrink {
 			// recoverable error
 			throw e;
 		} catch (Throwable e) {
-			Log.e(TAG, "unrecoverable error occured on media shrink.", e);
+			Timber.tag(TAG).e(e, "Unrecoverable error occurred on media shrink.");
 			errorCallback.onUnrecoverableError(e);
 		} finally {
 			try {
@@ -214,7 +210,7 @@ class MediaShrink {
 					metadataRetriever.release();
 				}
 			} catch (RuntimeException e) {
-				Log.e(TAG, "fail to finalize shrink.", e);
+				Timber.tag(TAG).e(e, "Failed to finalize shrink.");
 				errorCallback.onUnrecoverableError(e);
 			}
 		}
@@ -235,10 +231,9 @@ class MediaShrink {
 		final long durationSec = Long.valueOf(metadataRetriever
 				.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)) / 1000;
 		if (durationSec > durationLimit) {
-			Log.e(TAG, "movie duration (" + durationSec
-					+ " sec)is longer than duration limit(" + durationLimit
-					+ " sec). ");
-			throw new TooMovieLongException("movie duration (" + durationSec
+			Timber.tag(TAG).e("Movie duration(%d sec) is longer than duration limit(%d sec).",
+					durationSec, durationLimit);
+			throw new TooMovieLongException("Movie duration (" + durationSec
 					+ " sec)is longer than duration limit(" + durationLimit
 					+ " sec). ");
 		}

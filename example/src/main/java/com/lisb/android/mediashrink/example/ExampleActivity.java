@@ -10,7 +10,6 @@ import android.os.Environment;
 import android.os.Handler;
 import android.preference.PreferenceManager;
 import android.provider.MediaStore;
-import android.util.Log;
 import android.view.ContextMenu;
 import android.view.ContextMenu.ContextMenuInfo;
 import android.view.MenuItem;
@@ -28,6 +27,8 @@ import org.jdeferred.FailCallback;
 import org.jdeferred.Promise;
 
 import java.io.File;
+
+import timber.log.Timber;
 
 public class ExampleActivity extends Activity implements OnClickListener {
 
@@ -200,7 +201,7 @@ public class ExampleActivity extends Activity implements OnClickListener {
 		}).fail(new FailCallback<Exception>() {
 			@Override
 			public void onFail(Exception result) {
-				Log.e(TAG, "fail to shrink media.", result);
+				Timber.tag(TAG).e(result, "Failed to shrink media.");
 
 				progress.setVisibility(View.GONE);
 				btnPlayReencodedVideo.setEnabled(true);
@@ -208,7 +209,7 @@ public class ExampleActivity extends Activity implements OnClickListener {
 
 				String errorMessage = result.getMessage();
 				if (errorMessage == null || errorMessage.isEmpty()) {
-					errorMessage = "fail to shrink.";
+					errorMessage = "Failed to shrink.";
 				}
 
 				Toast.makeText(ExampleActivity.this, errorMessage,

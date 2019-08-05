@@ -23,6 +23,7 @@ android {
 dependencies {
     api fileTree(dir: 'libs', include: '*.jar')
     api 'org.jdeferred:jdeferred-core:1.2.5-lisb-1'
+    api 'com.jakewharton.timber:timber:4.7.1'
 }
 
 task androidSourcesJar(type: Jar) {

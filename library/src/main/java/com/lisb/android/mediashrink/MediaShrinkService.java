@@ -12,15 +12,16 @@ import android.os.Message;
 import android.os.Messenger;
 import android.os.Process;
 import android.os.RemoteException;
-import android.util.Log;
+
 
 import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import timber.log.Timber;
+
 public class MediaShrinkService extends Service {
 
-	public static final String EXTRA_DEST_FILEPATH = "output";
 	public static final String EXTRA_WIDTH = "width";
 	public static final String EXTRA_VIDEO_BITRATE = "video-bitrate";
 	public static final String EXTRA_AUDIO_BITRATE = "audio-bitrate";
@@ -49,7 +50,7 @@ public class MediaShrinkService extends Service {
 
 	@Override
 	public void onCreate() {
-		Log.v(TAG, "onCreate");
+		Timber.tag(TAG).v("onCreate");
 		super.onCreate();
 
 		executorService = Executors.newSingleThreadExecutor();
@@ -67,7 +68,7 @@ public class MediaShrinkService extends Service {
 
 	@Override
 	public IBinder onBind(Intent intent) {
-		Log.v(TAG, "onBind");
+		Timber.tag(TAG).v("onBind");
 		mediaShrink.setWidth(intent.getIntExtra(EXTRA_WIDTH, -1));
 		mediaShrink
 				.setVideoBitRate(intent.getIntExtra(EXTRA_VIDEO_BITRATE, -1));
@@ -81,13 +82,13 @@ public class MediaShrinkService extends Service {
 
 	@Override
 	public boolean onUnbind(Intent intent) {
-		Log.v(TAG, "onUnbind");
+		Timber.tag(TAG).v("onUnbind");
 		return super.onUnbind(intent);
 	}
 
 	@Override
 	public void onDestroy() {
-		Log.v(TAG, "onDestroy");
+		Timber.tag(TAG).v("onDestroy");
 		super.onDestroy();
 		mediaShrink = null;
 		messenger = null;
@@ -110,7 +111,7 @@ public class MediaShrinkService extends Service {
 
 		@Override
 		public void handleMessage(final Message msg) {
-			Log.d(TAG, "ReceiveRequestHandler#handleMessage. what:" + msg.what);
+			Timber.tag(TAG).d("ReceiveRequestHandler#handleMessage. what:%d", msg.what);
 			switch (msg.what) {
 			case REQUEST_SHRINK_MSGID:
 				currentMessage = msg;
@@ -127,7 +128,7 @@ public class MediaShrinkService extends Service {
 							respondSafely(Message.obtain(null,
 									RESULT_COMPLETE_MSGID));
 						} catch (IOException | TooMovieLongException e) {
-							Log.e(TAG, "Failed to media shrink", e);
+							Timber.tag(TAG).e(e, "Failed to media shrink");
 							final Message response = Message.obtain();
 							response.what = RESULT_RECOVERABLE_ERROR_MSGID;
 							final Bundle data = new Bundle();
@@ -149,7 +150,7 @@ public class MediaShrinkService extends Service {
 							lock.wait();
 						}
 					} catch (InterruptedException e) {
-						Log.e(TAG, "interrupted", e);
+						Timber.tag(TAG).e(e, "interrupted");
 					}
 				}
 
@@ -159,10 +160,10 @@ public class MediaShrinkService extends Service {
 
 		private void respondSafely(final Message message) {
 			try {
-				Log.d(TAG, "respondSafely. type:" + message.what);
+				Timber.tag(TAG).d("respondSafely. type:%d", message.what);
 				currentMessage.replyTo.send(message);
 			} catch (RemoteException e) {
-				Log.e(TAG, "Failed to respond", e);
+				Timber.tag(TAG).e(e, "Failed to respond");
 			}
 		}
 
@@ -174,7 +175,7 @@ public class MediaShrinkService extends Service {
 
 		@Override
 		public void onUnrecoverableError(Throwable e) {
-			Log.e(TAG, "Unrecoverable error occurred.", e);
+			Timber.tag(TAG).e(e, "Unrecoverable error occurred.");
 			final Message response = Message.obtain();
 			response.what = RESULT_UNRECOVERABLE_ERROR_MSGID;
 			final Bundle data = new Bundle();

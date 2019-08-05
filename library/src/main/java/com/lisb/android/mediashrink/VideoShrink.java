@@ -8,7 +8,7 @@ import android.media.MediaMetadataRetriever;
 import android.media.MediaMuxer;
 import android.os.Build;
 import android.os.Environment;
-import android.util.Log;
+
 import android.view.Surface;
 
 import java.io.File;
@@ -16,10 +16,11 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicReference;
 
+import timber.log.Timber;
+
 public class VideoShrink {
 
 	private static final String TAG = "VideoShrink";
-	private static final boolean VERBOSE = false;
 	private static final boolean DEBUG = false; // デバッグ用にスナップショットを出力する
 
 	private static final String CODEC = "video/avc";
@@ -118,7 +119,7 @@ public class VideoShrink {
 		format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
 		format.setInteger(MediaFormat.KEY_FRAME_RATE, FRAMERATE);
 
-		Log.d(TAG, "create encoder configuration format:" + format + ", rotation:" + rotation);
+		Timber.tag(TAG).d("create encoder configuration format:%s, rotation:%d", format, rotation);
 
 		return format;
 	}
@@ -200,7 +201,7 @@ public class VideoShrink {
 			outputSurface = new OutputSurface(Build.VERSION.SDK_INT >= 21 ? 0 : -rotation);
 			decoder = createDecoder(currentFormat, outputSurface.getSurface());
 			if (decoder == null) {
-				Log.e(TAG, "video decoder not found.");
+				Timber.tag(TAG).e("video decoder not found.");
 				throw new DecodeException("video decoder not found.");
 			}
 
@@ -226,18 +227,12 @@ public class VideoShrink {
 					final long sampleTime = extractor.getSampleTime();
 					int sampleFlags = extractor.getSampleFlags();
 
-					if (VERBOSE) {
-						Log.v(TAG,
-								"video extractor output. size:" + size
-										+ ", sample time:"
-										+ sampleTime
-										+ ", sample flags:"
-										+ sampleFlags);
-					}
+					Timber.tag(TAG).v("video extractor output. size:%d, sample time:%d, sample flags:%d",
+							size, sampleTime, sampleFlags);
 
 					extractorDone = !extractor.advance();
 					if (extractorDone) {
-						Log.d(TAG, "video extractor: EOS, size:" + size);
+						Timber.tag(TAG).d("video extractor: EOS, size:%d", size);
 						sampleFlags |=  MediaCodec.BUFFER_FLAG_END_OF_STREAM;
 					}
 
@@ -255,21 +250,18 @@ public class VideoShrink {
 							decoderOutputBufferInfo, TIMEOUT_USEC);
 
 					if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-						Log.d(TAG, "video decoder: output format changed. "
-								+ Utils.toString(decoder.getOutputFormat()));
+						Timber.tag(TAG).d("video decoder: output format changed. %s",
+								Utils.toString(decoder.getOutputFormat()));
 					}
 
 					if (decoderOutputBufferIndex < 0) {
 						break;
 					}
 
-					if (VERBOSE) {
-						Log.v(TAG, "video decoder output. time:"
-								+ decoderOutputBufferInfo.presentationTimeUs
-								+ ", offset:" + decoderOutputBufferInfo.offset
-								+ ", size:" + decoderOutputBufferInfo.size
-								+ ", flag:" + decoderOutputBufferInfo.flags);
-					}
+					Timber.tag(TAG).v("video decoder output. time:%d, offset:%d, size:%d, flags:%d",
+							decoderOutputBufferInfo.presentationTimeUs,
+							decoderOutputBufferInfo.offset, decoderOutputBufferInfo.size,
+							decoderOutputBufferInfo.flags);
 
 					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
 						decoder.releaseOutputBuffer(decoderOutputBufferIndex,
@@ -308,20 +300,18 @@ public class VideoShrink {
 							inputSurface.swapBuffers();
 							lastDecodePresentationTimeMs = presentaionTimeMs;
 						} else {
-							Log.i(TAG,
-									"frame removed because frame interval is too short. current:"
-											+ presentaionTimeMs + ", last:"
-											+ lastDecodePresentationTimeMs);
+							Timber.tag(TAG).i("Frame removed because frame interval is too short. current:%d, last:%d",
+									presentaionTimeMs, lastDecodePresentationTimeMs);
 						}
 					}
 
 					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
 						if (frameCount == 0) {
-							Log.e(TAG, "no video frame found.");
+							Timber.tag(TAG).e("no video frame found.");
 							throw new DecodeException("no video frame found.");
 						}
 
-						Log.d(TAG, "video decoder: EOS");
+						Timber.tag(TAG).d("video decoder: EOS");
 						decoderDone = true;
 						encoder.signalEndOfInputStream();
 					}
@@ -334,7 +324,7 @@ public class VideoShrink {
 							.dequeueOutputBuffer(encoderOutputBufferInfo,
 									TIMEOUT_USEC);
 					if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
-						Log.d(TAG, "video encoder: output buffers changed");
+						Timber.tag(TAG).d("video encoder: output buffers changed");
 						encoderOutputBuffers = encoder.getOutputBuffers();
 						break;
 					}
@@ -354,13 +344,10 @@ public class VideoShrink {
 
 					final ByteBuffer encoderOutputBuffer = encoderOutputBuffers[encoderOutputBufferIndex];
 
-					if (VERBOSE) {
-						Log.v(TAG, "video encoder output. time:"
-								+ encoderOutputBufferInfo.presentationTimeUs
-								+ ", offset:" + encoderOutputBufferInfo.offset
-								+ ", size:" + encoderOutputBufferInfo.size
-								+ ", flag:" + encoderOutputBufferInfo.flags);
-					}
+					Timber.tag(TAG).v("video encoder output. time:%d, offset:%d, size:%d, flags:%d",
+							encoderOutputBufferInfo.presentationTimeUs,
+							encoderOutputBufferInfo.offset, encoderOutputBufferInfo.size,
+							encoderOutputBufferInfo.flags);
 
 					if ((encoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
 						// エンコーダに何か入力しないと、ここに来ないエンコーダがあるので注意。
@@ -386,7 +373,7 @@ public class VideoShrink {
 						}
 					}
 					if ((encoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-						Log.d(TAG, "video encoder: EOS");
+						Timber.tag(TAG).d("video encoder: EOS");
 						return;
 					}
 					encoder.releaseOutputBuffer(encoderOutputBufferIndex, false);
@@ -397,7 +384,7 @@ public class VideoShrink {
 			// recoverable error
 			throw e;
 		} catch (Throwable e) {
-			Log.e(TAG, "unrecoverable error occured on video shrink.", e);
+			Timber.tag(TAG).e(e, "Unrecoverable error occured on video shrink.");
 			errorCallback.onUnrecoverableError(e);
 		} finally {
 			if (encoder != null) {
@@ -434,9 +421,8 @@ public class VideoShrink {
 		reencode(trackIndex, null, new ReencodeListener() {
 			@Override
 			public boolean onEncoderFormatChanged(MediaCodec encoder) {
-				Log.d(TAG,
-						"video encoder: output format changed. "
-								+ Utils.toString(encoder.getOutputFormat()));
+				Timber.tag(TAG).d("video encoder: output format changed. %s",
+						Utils.toString(encoder.getOutputFormat()));
 				formatRef.set(encoder.getOutputFormat());
 				return true;
 			}
@@ -460,17 +446,17 @@ public class VideoShrink {
 			if (decoder != null) {
 				decoder.configure(format, surface, null, 0);
 
-				Log.d(TAG, "video decoder:" + decoder.getName());
+				Timber.tag(TAG).d("video decoder:%s", decoder.getName());
 			}
 			return decoder;
 		} catch (IOException e) {
 			// later Lollipop.
 			final String detailMessage = "video decoder cannot be created. codec-name:" + codecName;
-			Log.e(TAG, detailMessage, e);
+			Timber.tag(TAG).e(e, detailMessage);
 			throw new DecoderCreationException(detailMessage, e);
 		} catch (IllegalStateException e) {
 			final String detailMessage = "video decoder cannot be created. codec-name:" + codecName;
-			Log.e(TAG, detailMessage, e);
+			Timber.tag(TAG).e(e, detailMessage);
 			throw new DecoderCreationException(detailMessage, e);
 		}
 	}
@@ -483,17 +469,17 @@ public class VideoShrink {
 			encoder.configure(format, null, null,
 					MediaCodec.CONFIGURE_FLAG_ENCODE);
 
-			Log.d(TAG, "video encoder:" + encoder.getName());
+			Timber.tag(TAG).d("video encoder:%s", encoder.getName());
 			return encoder;
 		} catch (IOException e) {
 			// later Lollipop.
 			final String detailMessage = "video encoder cannot be created. codec-name:" + codecName;
-			Log.e(TAG, detailMessage, e);
+			Timber.tag(TAG).e(e, detailMessage);
 			throw new EncoderCreationException(detailMessage, e);
 		} catch (IllegalStateException e) {
 			// TODO Change Detail Message If minSDKVersion > 21
 			final String detailMessage = "video encoder cannot be created. codec-name:" + codecName;
-			Log.e(TAG, detailMessage, e);
+			Timber.tag(TAG).e(e, detailMessage);
 			throw new EncoderCreationException(detailMessage, e);
 		}
 	}

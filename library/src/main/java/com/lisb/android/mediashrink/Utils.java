@@ -6,7 +6,7 @@ import android.media.MediaCodecInfo.CodecCapabilities;
 import android.media.MediaCodecInfo.CodecProfileLevel;
 import android.media.MediaCodecList;
 import android.media.MediaFormat;
-import android.util.Log;
+
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -15,40 +15,35 @@ import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
+import timber.log.Timber;
+
 public class Utils {
 
 	private static final String TAG = "Utils";
 
 	public static void printCodecCapabilities(boolean encoder) {
-		Log.v(TAG, "print codec capablities.");
 		for (int i = 0, size = MediaCodecList.getCodecCount(); i < size; i++) {
 			final MediaCodecInfo info = MediaCodecList.getCodecInfoAt(i);
 			if (info.isEncoder() == encoder) {
-				Log.v(TAG, "  MediaCodecInfo:" + info.getName());
+				final StringBuilder sb = new StringBuilder();
+				sb.append("MediaCodecInfo: ").append(info.getName()).append('\n');
 				for (final String type : info.getSupportedTypes()) {
-					final CodecCapabilities capabilities = info
-							.getCapabilitiesForType(type);
-					Log.v(TAG, "    type:" + type);
-					Log.v(TAG,
-							"    color format:"
-									+ Arrays.toString(capabilities.colorFormats));
-
-					StringBuilder sb = new StringBuilder();
-					sb.append("    profile levels:");
-					sb.append('[');
+					final CodecCapabilities capabilities = info.getCapabilitiesForType(type);
+					sb.append("\ttype: ").append(type).append('\n');
+					sb.append("\t\tcolor format: ").append(Arrays.toString(capabilities.colorFormats)).append('\n');
+					sb.append("\t\tprofile levels: [");
 					for (final CodecProfileLevel l : capabilities.profileLevels) {
 						sb.append('{');
 						sb.append("level:");
-						sb.append(Integer.toString(l.level));
+						sb.append(l.level);
 						sb.append(", profile:");
 						sb.append(Integer.toHexString(l.profile));
 						sb.append('}');
 						sb.append(',');
 					}
-					sb.append(']');
-
-					Log.v(TAG, "    profile:" + sb.toString());
+					sb.append("]\n");
 				}
+				Timber.tag(TAG).v(sb.toString());
 			}
 		}
 	}

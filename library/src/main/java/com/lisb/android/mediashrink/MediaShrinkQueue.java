@@ -14,7 +14,7 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.Messenger;
 import android.os.RemoteException;
-import android.util.Log;
+
 
 import org.jdeferred.Deferred;
 import org.jdeferred.Promise;
@@ -28,6 +28,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayDeque;
 import java.util.Queue;
+
+import timber.log.Timber;
 
 public class MediaShrinkQueue {
 
@@ -95,7 +97,7 @@ public class MediaShrinkQueue {
                     try {
                         bindService();
                     } catch (IOException e) {
-                        Log.e(TAG, "Failed to bind service.", e);
+                        Timber.tag(TAG).e(e, "Failed to bind service.");
                         request.deferred.reject(e);
                         return;
                     }
@@ -108,17 +110,17 @@ public class MediaShrinkQueue {
                 }
             });
         } catch (IOException e) {
-            Log.e(TAG, "Failed to create working file", e);
+            Timber.tag(TAG).e(e, "Failed to create working file");
             deferred.reject(e);
         }
         return deferred;
     }
 
     private void bindService() throws IOException {
-        Log.v(TAG, "bind service.");
+        Timber.tag(TAG).v("bind service.");
 
         if (binder != null && binder.isBinderAlive()) {
-            Log.v(TAG, "Service bound.");
+            Timber.tag(TAG).v("Service bound.");
             return;
         }
 
@@ -129,15 +131,15 @@ public class MediaShrinkQueue {
         intent.putExtra(MediaShrinkService.EXTRA_DURATION_LIMIT, durationLimit);
 
         if (!context.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
-            Log.e(TAG, "bindService return false.");
-            throw new IOException("Fail to connect to MediaShrinkService.");
+            Timber.tag(TAG).e("bindService return false.");
+            throw new IOException("Failed to connect to MediaShrinkService.");
         }
         bound = true;
     }
 
     private void unbindServiceIfQueueIsEmpty() {
         if (bound && queue.isEmpty()) {
-            Log.v(TAG, "unbind service.");
+            Timber.tag(TAG).v("unbind service.");
             context.unbindService(connection);
             bound = false;
             unbindInvoked = true;
@@ -166,7 +168,7 @@ public class MediaShrinkQueue {
             sendMessenger.send(m);
             return true;
         } catch (RemoteException e) {
-            Log.e(TAG, "fail to send request.", e);
+            Timber.tag(TAG).e(e, "Failed to send request.");
             return false;
         }
     }
@@ -187,7 +189,7 @@ public class MediaShrinkQueue {
             try {
                 bindService();
             } catch (IOException e) {
-                Log.e(TAG, "Fail to reconnect service.", e);
+                Timber.tag(TAG).e(e, "Failed to reconnect service.");
                 final Request[] remains = new Request[queue.size()];
                 queue.toArray(remains);
                 queue.clear();
@@ -209,7 +211,7 @@ public class MediaShrinkQueue {
             return false;
         }
 
-        Log.v(TAG, "isUnbinding");
+        Timber.tag(TAG).v("isUnbinding");
         return true;
     }
 
@@ -222,7 +224,7 @@ public class MediaShrinkQueue {
     }
 
     private void cleanWorkspace() {
-        Log.d(TAG, "cleanWorkspace");
+        Timber.tag(TAG).d("cleanWorkspace");
         final File[] workspaceFiles = workspace.listFiles();
         if (workspaceFiles == null) {
             return;
@@ -236,7 +238,7 @@ public class MediaShrinkQueue {
         @Override
         public void onServiceConnected(final ComponentName name,
                                        final IBinder service) {
-            Log.d(TAG, "onServiceConnected.");
+            Timber.tag(TAG).d("onServiceConnected.");
             handler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -244,7 +246,7 @@ public class MediaShrinkQueue {
                     sendMessenger = new Messenger(service);
                     receiveMessenger = new Messenger(new ReceiveResultHandler(
                             handler.getLooper()));
-                    Log.v(TAG, "send all requests. size:" + queue.size());
+                    Timber.tag(TAG).v("send all requests. size:%d", queue.size());
                     for (Request r : queue) {
                         if (!sendRequest(r)) {
                             // rebind はイベントに任せる
@@ -257,15 +259,14 @@ public class MediaShrinkQueue {
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
-            Log.e(TAG, "onServiceDisconnected.");
+            Timber.tag(TAG).e("onServiceDisconnected.");
             handler.post(new Runnable() {
                 @Override
                 public void run() {
                     final Request request = queue.poll();
                     if (request != null
                             && request.deferred.state() == State.PENDING) {
-                        request.deferred.reject(new RuntimeException(
-                                "process killed."));
+                        request.deferred.reject(new RuntimeException("process killed."));
                     }
                     request.workingFile.delete();
                     bound = false;
@@ -285,7 +286,7 @@ public class MediaShrinkQueue {
 
         @Override
         public void handleMessage(Message msg) {
-            Log.d(TAG, "ReceiveResultHandler#handleMessage. what:" + msg.what);
+            Timber.tag(TAG).d("ReceiveResultHandler#handleMessage. what:%d", msg.what);
             switch (msg.what) {
                 case MediaShrinkService.RESULT_COMPLETE_MSGID: {
                     // 動画圧縮の途中でプロセスがkillされた際にゴミファイルが残らないように
@@ -299,7 +300,7 @@ public class MediaShrinkQueue {
                         Utils.copy(in, out);
                         request.deferred.resolve(request.workingFile.length());
                     } catch (IOException e) {
-                        Log.e(TAG, "Failed to rename temp file to dest file.", e);
+                        Timber.tag(TAG).e(e, "Failed to rename temp file to dest file.");
                         request.deferred.reject(e);
                     } finally {
                         Utils.closeSilently(out);

@@ -5,16 +5,16 @@ import android.media.MediaCodecInfo;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
-import android.util.Log;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicReference;
 
+import timber.log.Timber;
+
 public class AudioShrink {
 
 	private static final String TAG = "AudioShrink";
-	private static final boolean VERBOSE = false;
 
 	private static final long TIMEOUT_USEC = 250;
 	private static final String CODEC = "audio/mp4a-latm";
@@ -63,7 +63,7 @@ public class AudioShrink {
 		format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
 		format.setInteger(MediaFormat.KEY_AAC_PROFILE, AAC_PROFILE);
 
-		Log.d(TAG, "create audio encoder configuration format:" + Utils.toString(format));
+		Timber.tag(TAG).d("create audio encoder configuration format:%s", Utils.toString(format));
 
 		return format;
 	}
@@ -71,7 +71,7 @@ public class AudioShrink {
 	private void reencode(final int trackIndex, final Integer newTrackIndex,
 			final ReencodeListener listener) throws DecodeException {
 		final MediaFormat originalFormat = extractor.getTrackFormat(trackIndex);
-		Log.d(TAG, "original format:" + Utils.toString(originalFormat));
+		Timber.tag(TAG).d("original format:%s", Utils.toString(originalFormat));
 		final MediaFormat encoderConfigurationFormat = createEncoderConfigurationFormat(originalFormat);
 
 		MediaCodec encoder = null;
@@ -103,7 +103,7 @@ public class AudioShrink {
 			// create decorder
 			decoder = createDecoder(originalFormat);
 			if (decoder == null) {
-				Log.e(TAG, "audio decoder not found.");
+				Timber.tag(TAG).e("audio decoder not found.");
 				throw new DecodeException("audio decoder not found.");
 			}
 			decoder.start();
@@ -138,27 +138,24 @@ public class AudioShrink {
 					final long pts = extractor.getSampleTime();
 					int sampleFlags = extractor.getSampleFlags();
 
-					if (VERBOSE) {
-						Log.v(TAG, "audio extractor output. size:" + size
-								+ ", sample time:" + pts + ", sample flags:"
-								+ sampleFlags);
-					}
+					Timber.tag(TAG).v("audio extractor output. size:%d, sample time:%d, sample flags:%d", size,
+							pts, sampleFlags);
 
 					extractorDone = !extractor.advance();
 					if (extractorDone) {
-						Log.d(TAG, "audio extractor: EOS, size:" + size + ", sampleCount:" + sampleCount);
+						Timber.tag(TAG).d("audio extractor: EOS, size:%d, sampleCount:%d",
+								size, sampleCount);
 						sampleFlags |= MediaCodec.BUFFER_FLAG_END_OF_STREAM;
 						if (sampleCount == 0) {
-							Log.e(TAG, "no audio sample found.");
+							Timber.tag(TAG).e("no audio sample found.");
 							throw new DecodeException("no audio sample found.");
 						}
 					}
 
 					if (size >= 0) {
 						if (lastExtracterOutputPts >= pts) {
-							Log.w(TAG, "extractor output pts(" + pts
-									+ ") is smaller than last pts("
-									+ +lastExtracterOutputPts + ").");
+							Timber.tag(TAG).w("extractor output pts(%d) is smaller than last pts(%d)",
+									pts, lastExtracterOutputPts);
 						} else {
 							lastExtracterOutputPts = pts;
 						}
@@ -177,13 +174,13 @@ public class AudioShrink {
 							.dequeueOutputBuffer(decoderOutputBufferInfo,
 									TIMEOUT_USEC);
 					if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
-						Log.d(TAG, "audio decoder: output buffers changed");
+						Timber.tag(TAG).d("audio decoder: output buffers changed");
 						decoderOutputBuffers = decoder.getOutputBuffers();
 						break;
 					}
 					if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-						Log.d(TAG, "audio decoder: output format changed. "
-								+ Utils.toString(decoder.getOutputFormat()));
+						Timber.tag(TAG).d("audio decoder: output format changed. %s",
+								Utils.toString(decoder.getOutputFormat()));
 						break;
 					}
 
@@ -199,17 +196,13 @@ public class AudioShrink {
 					pendingDecoderOutputBufferIndex = decoderOutputBufferIndex;
 
 					final long pts = decoderOutputBufferInfo.presentationTimeUs;
-					if (VERBOSE) {
-						Log.v(TAG, "audio decoder output. time:" + pts
-								+ ", offset:" + decoderOutputBufferInfo.offset
-								+ ", size:" + decoderOutputBufferInfo.size
-								+ ", flag:" + decoderOutputBufferInfo.flags);
-					}
+					Timber.tag(TAG).v("audio decoder output. time:%d, offset:%d, size:%d, flags:%d",
+							pts, decoderOutputBufferInfo.offset, decoderOutputBufferInfo.size,
+							decoderOutputBufferInfo.flags);
 
 					if (lastDecoderOutputPts >= pts) {
-						Log.w(TAG, "decoder output pts(" + pts
-								+ ") is smaller than last pts("
-								+ lastDecoderOutputPts + ").");
+						Timber.tag(TAG).w("decoder output pts(%d) is smaller than last pts(%d)",
+								pts, lastDecoderOutputPts);
 					} else {
 						lastDecoderOutputPts = pts;
 					}
@@ -249,7 +242,7 @@ public class AudioShrink {
 
 					pendingDecoderOutputBufferIndex = -1;
 					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-						Log.d(TAG, "audio decoder: EOS");
+						Timber.tag(TAG).d("audio decoder: EOS");
 						decoderDone = true;
 					}
 					break;
@@ -262,7 +255,7 @@ public class AudioShrink {
 									TIMEOUT_USEC);
 
 					if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
-						Log.d(TAG, "audio encoder: output buffers changed");
+						Timber.tag(TAG).d("audio encoder: output buffers changed");
 						encoderOutputBuffers = encoder.getOutputBuffers();
 						break;
 					}
@@ -289,18 +282,14 @@ public class AudioShrink {
 					}
 
 					final long pts = encoderOutputBufferInfo.presentationTimeUs;
-					if (VERBOSE) {
-						Log.v(TAG, "audio encoder output. time:" + pts
-								+ ", offset:" + encoderOutputBufferInfo.offset
-								+ ", size:" + encoderOutputBufferInfo.size
-								+ ", flag:" + encoderOutputBufferInfo.flags);
-					}
+					Timber.tag(TAG).v("audio encoder output. time:%d, offset:%d, size:%d, flags:%d",
+							pts, encoderOutputBufferInfo.offset, encoderOutputBufferInfo.size,
+							encoderOutputBufferInfo.flags);
 
 					if (encoderOutputBufferInfo.size != 0) {
 						if (lastEncoderOutputPts >= pts) {
-							Log.w(TAG, "encoder output pts(" + pts
-									+ ") is smaller than last pts("
-									+ lastEncoderOutputPts + ").");
+							Timber.tag(TAG).w("encoder output pts(%d) is smaller than last pts(%d)",
+									pts, lastEncoderOutputPts);
 						} else {
 							if (newTrackIndex != null) {
 								muxer.writeSampleData(newTrackIndex,
@@ -321,7 +310,7 @@ public class AudioShrink {
 						}
 					}
 					if ((encoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-						Log.d(TAG, "audio encoder: EOS");
+						Timber.tag(TAG).d("audio encoder: EOS");
 						return;
 					}
 					encoder.releaseOutputBuffer(encoderOutputBufferIndex, false);
@@ -332,7 +321,7 @@ public class AudioShrink {
 			// recoverable error
 			throw e;
 		} catch (Throwable e) {
-			Log.e(TAG, "unrecoverable error occured on audio shrink.", e);
+			Timber.tag(TAG).e(e, "unrecoverable error occured on audio shrink.");
 			errorCallback.onUnrecoverableError(e);
 		} finally {
 			if (encoder != null) {
@@ -356,9 +345,8 @@ public class AudioShrink {
 		reencode(trackIndex, null, new ReencodeListener() {
 			@Override
 			public boolean onEncoderFormatChanged(MediaCodec encoder) {
-				Log.d(TAG,
-						"audio encoder: output format changed. "
-								+ Utils.toString(encoder.getOutputFormat()));
+                Timber.tag(TAG).d("audio encoder: output format changed. %s",
+                        Utils.toString(encoder.getOutputFormat()));
 				formatRef.set(encoder.getOutputFormat());
 				return true;
 			}
@@ -380,17 +368,17 @@ public class AudioShrink {
 			if (decoder != null) {
 				decoder.configure(format, null, null, 0);
 
-				Log.d(TAG, "audio decoder:" + decoder.getName());
+				Timber.tag(TAG).d("audio decoder:%s", decoder.getName());
 			}
 			return decoder;
 		} catch (IOException e) {
 			// later Lollipop.
 			final String detailMessage = "audio decoder cannot be created. codec-name:" + codecName;
-			Log.e(TAG, detailMessage, e);
+			Timber.tag(TAG).e(e, detailMessage);
 			throw new DecoderCreationException(detailMessage, e);
 		} catch (IllegalStateException e) {
 			final String detailMessage = "audio decoder cannot be created. codec-name:" + codecName;
-			Log.e(TAG, detailMessage, e);
+			Timber.tag(TAG).e(e, detailMessage);
 			throw new DecoderCreationException(detailMessage, e);
 		}
 	}
@@ -402,17 +390,17 @@ public class AudioShrink {
 			final MediaCodec encoder = MediaCodec.createByCodecName(codecName);
 			encoder.configure(format, null, null,
 					MediaCodec.CONFIGURE_FLAG_ENCODE);
-			Log.d(TAG, "audio encoder:" + encoder.getName());
+			Timber.tag(TAG).d("audio encoder:%s", encoder.getName());
 			return encoder;
 		} catch (IOException e) {
 			// later Lollipop.
 			final String detailMessage = "audio encoder cannot be created. codec-name:" + codecName;
-			Log.e(TAG, detailMessage, e);
+			Timber.tag(TAG).e(e, detailMessage);
 			throw new EncoderCreationException(detailMessage, e);
 		} catch (IllegalStateException e) {
 			// TODO Change Detail Message If minSDKVersion > 21
 			final String detailMessage = "audio encoder cannot be created. codec-name:" + codecName;
-			Log.e(TAG, detailMessage, e);
+			Timber.tag(TAG).e(e, detailMessage);
 			throw new EncoderCreationException(detailMessage, e);
 		}
 	}

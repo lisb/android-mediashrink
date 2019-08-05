@@ -22,8 +22,10 @@ import android.opengl.EGLConfig;
 import android.opengl.EGLContext;
 import android.opengl.EGLDisplay;
 import android.opengl.EGLSurface;
-import android.util.Log;
+
 import android.view.Surface;
+
+import timber.log.Timber;
 
 
 /**
@@ -173,7 +175,7 @@ class InputSurface {
         boolean failed = false;
         int error;
         while ((error = EGL14.eglGetError()) != EGL14.EGL_SUCCESS) {
-            Log.e(TAG, msg + ": EGL error: 0x" + Integer.toHexString(error));
+            Timber.tag(TAG).e("%s: EGL error: 0x%s", msg, Integer.toHexString(error));
             failed = true;
         }
         if (failed) {
