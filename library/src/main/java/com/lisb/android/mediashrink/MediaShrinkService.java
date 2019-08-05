@@ -38,7 +38,7 @@ public class MediaShrinkService extends Service {
 	public static final int RESULT_UNRECOVERABLE_ERROR_MSGID = 4;
 	public static final String RESULT_UNRECOVERABLE_ERROR_EXCEPTION = "exception";
 
-	private static final String LOG_TAG = MediaShrinkService.class
+	private static final String TAG = MediaShrinkService.class
 			.getSimpleName();
 
 	private final Object lock = new Object();
@@ -49,7 +49,7 @@ public class MediaShrinkService extends Service {
 
 	@Override
 	public void onCreate() {
-		Log.v(LOG_TAG, "onCreate");
+		Log.v(TAG, "onCreate");
 		super.onCreate();
 
 		executorService = Executors.newSingleThreadExecutor();
@@ -67,7 +67,7 @@ public class MediaShrinkService extends Service {
 
 	@Override
 	public IBinder onBind(Intent intent) {
-		Log.v(LOG_TAG, "onBind");
+		Log.v(TAG, "onBind");
 		mediaShrink.setWidth(intent.getIntExtra(EXTRA_WIDTH, -1));
 		mediaShrink
 				.setVideoBitRate(intent.getIntExtra(EXTRA_VIDEO_BITRATE, -1));
@@ -81,13 +81,13 @@ public class MediaShrinkService extends Service {
 
 	@Override
 	public boolean onUnbind(Intent intent) {
-		Log.v(LOG_TAG, "onUnbind");
+		Log.v(TAG, "onUnbind");
 		return super.onUnbind(intent);
 	}
 
 	@Override
 	public void onDestroy() {
-		Log.v(LOG_TAG, "onDestroy");
+		Log.v(TAG, "onDestroy");
 		super.onDestroy();
 		mediaShrink = null;
 		messenger = null;
@@ -110,7 +110,7 @@ public class MediaShrinkService extends Service {
 
 		@Override
 		public void handleMessage(final Message msg) {
-			Log.d(LOG_TAG, "ReceiveRequestHandler#handleMessage. what:" + msg.what);
+			Log.d(TAG, "ReceiveRequestHandler#handleMessage. what:" + msg.what);
 			switch (msg.what) {
 			case REQUEST_SHRINK_MSGID:
 				currentMessage = msg;
@@ -127,7 +127,7 @@ public class MediaShrinkService extends Service {
 							respondSafely(Message.obtain(null,
 									RESULT_COMPLETE_MSGID));
 						} catch (IOException | TooMovieLongException e) {
-							Log.e(LOG_TAG, "Failed to media shrink", e);
+							Log.e(TAG, "Failed to media shrink", e);
 							final Message response = Message.obtain();
 							response.what = RESULT_RECOVERABLE_ERROR_MSGID;
 							final Bundle data = new Bundle();
@@ -149,7 +149,7 @@ public class MediaShrinkService extends Service {
 							lock.wait();
 						}
 					} catch (InterruptedException e) {
-						Log.e(LOG_TAG, "interrupted", e);
+						Log.e(TAG, "interrupted", e);
 					}
 				}
 
@@ -159,10 +159,10 @@ public class MediaShrinkService extends Service {
 
 		private void respondSafely(final Message message) {
 			try {
-				Log.d(LOG_TAG, "respondSafely. type:" + message.what);
+				Log.d(TAG, "respondSafely. type:" + message.what);
 				currentMessage.replyTo.send(message);
 			} catch (RemoteException e) {
-				Log.e(LOG_TAG, "Failed to respond", e);
+				Log.e(TAG, "Failed to respond", e);
 			}
 		}
 
@@ -174,7 +174,7 @@ public class MediaShrinkService extends Service {
 
 		@Override
 		public void onUnrecoverableError(Throwable e) {
-			Log.e(LOG_TAG, "Unrecoverable error occurred.", e);
+			Log.e(TAG, "Unrecoverable error occurred.", e);
 			final Message response = Message.obtain();
 			response.what = RESULT_UNRECOVERABLE_ERROR_MSGID;
 			final Bundle data = new Bundle();

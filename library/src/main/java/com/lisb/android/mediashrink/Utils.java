@@ -17,19 +17,19 @@ import java.util.Arrays;
 
 public class Utils {
 
-	private static final String LOG_TAG = Utils.class.getSimpleName();
+	private static final String TAG = Utils.class.getSimpleName();
 
 	public static void printCodecCapabilities(boolean encoder) {
-		Log.v(LOG_TAG, "print codec capablities.");
+		Log.v(TAG, "print codec capablities.");
 		for (int i = 0, size = MediaCodecList.getCodecCount(); i < size; i++) {
 			final MediaCodecInfo info = MediaCodecList.getCodecInfoAt(i);
 			if (info.isEncoder() == encoder) {
-				Log.v(LOG_TAG, "  MediaCodecInfo:" + info.getName());
+				Log.v(TAG, "  MediaCodecInfo:" + info.getName());
 				for (final String type : info.getSupportedTypes()) {
 					final CodecCapabilities capabilities = info
 							.getCapabilitiesForType(type);
-					Log.v(LOG_TAG, "    type:" + type);
-					Log.v(LOG_TAG,
+					Log.v(TAG, "    type:" + type);
+					Log.v(TAG,
 							"    color format:"
 									+ Arrays.toString(capabilities.colorFormats));
 
@@ -47,7 +47,7 @@ public class Utils {
 					}
 					sb.append(']');
 
-					Log.v(LOG_TAG, "    profile:" + sb.toString());
+					Log.v(TAG, "    profile:" + sb.toString());
 				}
 			}
 		}

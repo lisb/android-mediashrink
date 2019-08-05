@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class AudioShrink {
 
-	private static final String LOG_TAG = AudioShrink.class.getSimpleName();
+	private static final String TAG = AudioShrink.class.getSimpleName();
 	private static final boolean VERBOSE = false;
 
 	private static final long TIMEOUT_USEC = 250;
@@ -63,7 +63,7 @@ public class AudioShrink {
 		format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
 		format.setInteger(MediaFormat.KEY_AAC_PROFILE, AAC_PROFILE);
 
-		Log.d(LOG_TAG, "create audio encoder configuration format:" + Utils.toString(format));
+		Log.d(TAG, "create audio encoder configuration format:" + Utils.toString(format));
 
 		return format;
 	}
@@ -71,7 +71,7 @@ public class AudioShrink {
 	private void reencode(final int trackIndex, final Integer newTrackIndex,
 			final ReencodeListener listener) throws DecodeException {
 		final MediaFormat originalFormat = extractor.getTrackFormat(trackIndex);
-		Log.d(LOG_TAG, "original format:" + Utils.toString(originalFormat));
+		Log.d(TAG, "original format:" + Utils.toString(originalFormat));
 		final MediaFormat encoderConfigurationFormat = createEncoderConfigurationFormat(originalFormat);
 
 		MediaCodec encoder = null;
@@ -103,7 +103,7 @@ public class AudioShrink {
 			// create decorder
 			decoder = createDecoder(originalFormat);
 			if (decoder == null) {
-				Log.e(LOG_TAG, "audio decoder not found.");
+				Log.e(TAG, "audio decoder not found.");
 				throw new DecodeException("audio decoder not found.");
 			}
 			decoder.start();
@@ -139,24 +139,24 @@ public class AudioShrink {
 					int sampleFlags = extractor.getSampleFlags();
 
 					if (VERBOSE) {
-						Log.v(LOG_TAG, "audio extractor output. size:" + size
+						Log.v(TAG, "audio extractor output. size:" + size
 								+ ", sample time:" + pts + ", sample flags:"
 								+ sampleFlags);
 					}
 
 					extractorDone = !extractor.advance();
 					if (extractorDone) {
-						Log.d(LOG_TAG, "audio extractor: EOS, size:" + size + ", sampleCount:" + sampleCount);
+						Log.d(TAG, "audio extractor: EOS, size:" + size + ", sampleCount:" + sampleCount);
 						sampleFlags |= MediaCodec.BUFFER_FLAG_END_OF_STREAM;
 						if (sampleCount == 0) {
-							Log.e(LOG_TAG, "no audio sample found.");
+							Log.e(TAG, "no audio sample found.");
 							throw new DecodeException("no audio sample found.");
 						}
 					}
 
 					if (size >= 0) {
 						if (lastExtracterOutputPts >= pts) {
-							Log.w(LOG_TAG, "extractor output pts(" + pts
+							Log.w(TAG, "extractor output pts(" + pts
 									+ ") is smaller than last pts("
 									+ +lastExtracterOutputPts + ").");
 						} else {
@@ -177,12 +177,12 @@ public class AudioShrink {
 							.dequeueOutputBuffer(decoderOutputBufferInfo,
 									TIMEOUT_USEC);
 					if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
-						Log.d(LOG_TAG, "audio decoder: output buffers changed");
+						Log.d(TAG, "audio decoder: output buffers changed");
 						decoderOutputBuffers = decoder.getOutputBuffers();
 						break;
 					}
 					if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-						Log.d(LOG_TAG, "audio decoder: output format changed. "
+						Log.d(TAG, "audio decoder: output format changed. "
 								+ Utils.toString(decoder.getOutputFormat()));
 						break;
 					}
@@ -200,14 +200,14 @@ public class AudioShrink {
 
 					final long pts = decoderOutputBufferInfo.presentationTimeUs;
 					if (VERBOSE) {
-						Log.v(LOG_TAG, "audio decoder output. time:" + pts
+						Log.v(TAG, "audio decoder output. time:" + pts
 								+ ", offset:" + decoderOutputBufferInfo.offset
 								+ ", size:" + decoderOutputBufferInfo.size
 								+ ", flag:" + decoderOutputBufferInfo.flags);
 					}
 
 					if (lastDecoderOutputPts >= pts) {
-						Log.w(LOG_TAG, "decoder output pts(" + pts
+						Log.w(TAG, "decoder output pts(" + pts
 								+ ") is smaller than last pts("
 								+ lastDecoderOutputPts + ").");
 					} else {
@@ -249,7 +249,7 @@ public class AudioShrink {
 
 					pendingDecoderOutputBufferIndex = -1;
 					if ((decoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-						Log.d(LOG_TAG, "audio decoder: EOS");
+						Log.d(TAG, "audio decoder: EOS");
 						decoderDone = true;
 					}
 					break;
@@ -262,7 +262,7 @@ public class AudioShrink {
 									TIMEOUT_USEC);
 
 					if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
-						Log.d(LOG_TAG, "audio encoder: output buffers changed");
+						Log.d(TAG, "audio encoder: output buffers changed");
 						encoderOutputBuffers = encoder.getOutputBuffers();
 						break;
 					}
@@ -290,7 +290,7 @@ public class AudioShrink {
 
 					final long pts = encoderOutputBufferInfo.presentationTimeUs;
 					if (VERBOSE) {
-						Log.v(LOG_TAG, "audio encoder output. time:" + pts
+						Log.v(TAG, "audio encoder output. time:" + pts
 								+ ", offset:" + encoderOutputBufferInfo.offset
 								+ ", size:" + encoderOutputBufferInfo.size
 								+ ", flag:" + encoderOutputBufferInfo.flags);
@@ -298,7 +298,7 @@ public class AudioShrink {
 
 					if (encoderOutputBufferInfo.size != 0) {
 						if (lastEncoderOutputPts >= pts) {
-							Log.w(LOG_TAG, "encoder output pts(" + pts
+							Log.w(TAG, "encoder output pts(" + pts
 									+ ") is smaller than last pts("
 									+ lastEncoderOutputPts + ").");
 						} else {
@@ -321,7 +321,7 @@ public class AudioShrink {
 						}
 					}
 					if ((encoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-						Log.d(LOG_TAG, "audio encoder: EOS");
+						Log.d(TAG, "audio encoder: EOS");
 						return;
 					}
 					encoder.releaseOutputBuffer(encoderOutputBufferIndex, false);
@@ -332,7 +332,7 @@ public class AudioShrink {
 			// recoverable error
 			throw e;
 		} catch (Throwable e) {
-			Log.e(LOG_TAG, "unrecoverable error occured on audio shrink.", e);
+			Log.e(TAG, "unrecoverable error occured on audio shrink.", e);
 			errorCallback.onUnrecoverableError(e);
 		} finally {
 			if (encoder != null) {
@@ -356,7 +356,7 @@ public class AudioShrink {
 		reencode(trackIndex, null, new ReencodeListener() {
 			@Override
 			public boolean onEncoderFormatChanged(MediaCodec encoder) {
-				Log.d(LOG_TAG,
+				Log.d(TAG,
 						"audio encoder: output format changed. "
 								+ Utils.toString(encoder.getOutputFormat()));
 				formatRef.set(encoder.getOutputFormat());
@@ -380,17 +380,17 @@ public class AudioShrink {
 			if (decoder != null) {
 				decoder.configure(format, null, null, 0);
 
-				Log.d(LOG_TAG, "audio decoder:" + decoder.getName());
+				Log.d(TAG, "audio decoder:" + decoder.getName());
 			}
 			return decoder;
 		} catch (IOException e) {
 			// later Lollipop.
 			final String detailMessage = "audio decoder cannot be created. codec-name:" + codecName;
-			Log.e(LOG_TAG, detailMessage, e);
+			Log.e(TAG, detailMessage, e);
 			throw new DecoderCreationException(detailMessage, e);
 		} catch (IllegalStateException e) {
 			final String detailMessage = "audio decoder cannot be created. codec-name:" + codecName;
-			Log.e(LOG_TAG, detailMessage, e);
+			Log.e(TAG, detailMessage, e);
 			throw new DecoderCreationException(detailMessage, e);
 		}
 	}
@@ -402,17 +402,17 @@ public class AudioShrink {
 			final MediaCodec encoder = MediaCodec.createByCodecName(codecName);
 			encoder.configure(format, null, null,
 					MediaCodec.CONFIGURE_FLAG_ENCODE);
-			Log.d(LOG_TAG, "audio encoder:" + encoder.getName());
+			Log.d(TAG, "audio encoder:" + encoder.getName());
 			return encoder;
 		} catch (IOException e) {
 			// later Lollipop.
 			final String detailMessage = "audio encoder cannot be created. codec-name:" + codecName;
-			Log.e(LOG_TAG, detailMessage, e);
+			Log.e(TAG, detailMessage, e);
 			throw new EncoderCreationException(detailMessage, e);
 		} catch (IllegalStateException e) {
 			// TODO Change Detail Message If minSDKVersion > 21
 			final String detailMessage = "audio encoder cannot be created. codec-name:" + codecName;
-			Log.e(LOG_TAG, detailMessage, e);
+			Log.e(TAG, detailMessage, e);
 			throw new EncoderCreationException(detailMessage, e);
 		}
 	}

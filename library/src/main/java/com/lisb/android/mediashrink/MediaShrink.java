@@ -30,7 +30,7 @@ import android.util.Log;
  */
 class MediaShrink {
 
-	private static final String LOG_TAG = MediaShrink.class.getSimpleName();
+	private static final String TAG = MediaShrink.class.getSimpleName();
 
 	private static final int PROGRESS_ADD_TRACK = 10;
 	private static final int PROGRESS_WRITE_CONTENT = 40;
@@ -76,7 +76,7 @@ class MediaShrink {
 				extractor.setDataSource(context, inputUri, null);
 				metadataRetriever.setDataSource(context, inputUri);
 			} catch (IOException e) {
-				Log.e(LOG_TAG, "fail to read input.", e);
+				Log.e(TAG, "fail to read input.", e);
 				throw new IOException("fail to read input.", e);
 			}
 
@@ -90,12 +90,12 @@ class MediaShrink {
 			Integer audioTrack = null;
 			for (int i = 0, length = extractor.getTrackCount(); i < length; i++) {
 				final MediaFormat format = extractor.getTrackFormat(i);
-				Log.d(LOG_TAG,
+				Log.d(TAG,
 						"track [" + i + "] format: " + Utils.toString(format));
 				if (isVideoFormat(format)) {
 					if (videoTrack != null) {
 						// MediaMuxer がビデオ、オーディオそれぞれ1つずつしか含めることができないため。
-						Log.w(LOG_TAG,
+						Log.w(TAG,
 								"drop track. support one video track only. track:"
 										+ i);
 						continue;
@@ -105,7 +105,7 @@ class MediaShrink {
 				} else if (isAudioFormat(format)) {
 					if (audioTrack != null) {
 						// MediaMuxer がビデオ、オーディオそれぞれ1つずつしか含めることができないため。
-						Log.w(LOG_TAG,
+						Log.w(TAG,
 								"drop track. support one audio track only. track:"
 										+ i);
 						continue;
@@ -113,7 +113,7 @@ class MediaShrink {
 					audioTrack = i;
 					maxProgress += PROGRESS_ADD_TRACK + PROGRESS_WRITE_CONTENT;
 				} else {
-					Log.e(LOG_TAG, "drop track. unsupported format. track:" + i
+					Log.e(TAG, "drop track. unsupported format. track:" + i
 							+ ", format:" + Utils.toString(format));
 				}
 			}
@@ -184,12 +184,12 @@ class MediaShrink {
 					deliverProgress(progress, maxProgress);
 				}
 			} catch (IOException e) {
-				Log.e(LOG_TAG, "fail to write output.", e);
+				Log.e(TAG, "fail to write output.", e);
 				throw new IOException("fail to write output.", e);
 			} catch (Throwable e) {
 				// muxer はきちんと書き込みせずに閉じると RuntimeException を発行するので
 				// muxer を開いたあとは全ての例外が unrecoverable。
-				Log.e(LOG_TAG, "unrecoverable error occured on media shrink.",
+				Log.e(TAG, "unrecoverable error occured on media shrink.",
 						e);
 				errorCallback.onUnrecoverableError(e);
 			} finally {
@@ -202,7 +202,7 @@ class MediaShrink {
 			// recoverable error
 			throw e;
 		} catch (Throwable e) {
-			Log.e(LOG_TAG, "unrecoverable error occured on media shrink.", e);
+			Log.e(TAG, "unrecoverable error occured on media shrink.", e);
 			errorCallback.onUnrecoverableError(e);
 		} finally {
 			try {
@@ -214,7 +214,7 @@ class MediaShrink {
 					metadataRetriever.release();
 				}
 			} catch (RuntimeException e) {
-				Log.e(LOG_TAG, "fail to finalize shrink.", e);
+				Log.e(TAG, "fail to finalize shrink.", e);
 				errorCallback.onUnrecoverableError(e);
 			}
 		}
@@ -235,7 +235,7 @@ class MediaShrink {
 		final long durationSec = Long.valueOf(metadataRetriever
 				.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)) / 1000;
 		if (durationSec > durationLimit) {
-			Log.e(LOG_TAG, "movie duration (" + durationSec
+			Log.e(TAG, "movie duration (" + durationSec
 					+ " sec)is longer than duration limit(" + durationLimit
 					+ " sec). ");
 			throw new TooMovieLongException("movie duration (" + durationSec

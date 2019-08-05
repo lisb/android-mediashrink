@@ -31,7 +31,7 @@ import java.util.Queue;
 
 public class MediaShrinkQueue {
 
-    private static final String LOG_TAG = "MediaShrinkQueue";
+    private static final String TAG = "MediaShrinkQueue";
     private static final String WORKING_FILE_PREFIX = "working_";
 
     private static final long DELAY_RETRY_BIND = 1000;
@@ -95,7 +95,7 @@ public class MediaShrinkQueue {
                     try {
                         bindService();
                     } catch (IOException e) {
-                        Log.e(LOG_TAG, "Failed to bind service.", e);
+                        Log.e(TAG, "Failed to bind service.", e);
                         request.deferred.reject(e);
                         return;
                     }
@@ -108,17 +108,17 @@ public class MediaShrinkQueue {
                 }
             });
         } catch (IOException e) {
-            Log.e(LOG_TAG, "Failed to create working file", e);
+            Log.e(TAG, "Failed to create working file", e);
             deferred.reject(e);
         }
         return deferred;
     }
 
     private void bindService() throws IOException {
-        Log.v(LOG_TAG, "bind service.");
+        Log.v(TAG, "bind service.");
 
         if (binder != null && binder.isBinderAlive()) {
-            Log.v(LOG_TAG, "Service bound.");
+            Log.v(TAG, "Service bound.");
             return;
         }
 
@@ -129,7 +129,7 @@ public class MediaShrinkQueue {
         intent.putExtra(MediaShrinkService.EXTRA_DURATION_LIMIT, durationLimit);
 
         if (!context.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
-            Log.e(LOG_TAG, "bindService return false.");
+            Log.e(TAG, "bindService return false.");
             throw new IOException("Fail to connect to MediaShrinkService.");
         }
         bound = true;
@@ -137,7 +137,7 @@ public class MediaShrinkQueue {
 
     private void unbindServiceIfQueueIsEmpty() {
         if (bound && queue.isEmpty()) {
-            Log.v(LOG_TAG, "unbind service.");
+            Log.v(TAG, "unbind service.");
             context.unbindService(connection);
             bound = false;
             unbindInvoked = true;
@@ -166,7 +166,7 @@ public class MediaShrinkQueue {
             sendMessenger.send(m);
             return true;
         } catch (RemoteException e) {
-            Log.e(LOG_TAG, "fail to send request.", e);
+            Log.e(TAG, "fail to send request.", e);
             return false;
         }
     }
@@ -187,7 +187,7 @@ public class MediaShrinkQueue {
             try {
                 bindService();
             } catch (IOException e) {
-                Log.e(LOG_TAG, "Fail to reconnect service.", e);
+                Log.e(TAG, "Fail to reconnect service.", e);
                 final Request[] remains = new Request[queue.size()];
                 queue.toArray(remains);
                 queue.clear();
@@ -209,7 +209,7 @@ public class MediaShrinkQueue {
             return false;
         }
 
-        Log.v(LOG_TAG, "isUnbinding");
+        Log.v(TAG, "isUnbinding");
         return true;
     }
 
@@ -222,7 +222,7 @@ public class MediaShrinkQueue {
     }
 
     private void cleanWorkspace() {
-        Log.d(LOG_TAG, "cleanWorkspace");
+        Log.d(TAG, "cleanWorkspace");
         final File[] workspaceFiles = workspace.listFiles();
         if (workspaceFiles == null) {
             return;
@@ -236,7 +236,7 @@ public class MediaShrinkQueue {
         @Override
         public void onServiceConnected(final ComponentName name,
                                        final IBinder service) {
-            Log.d(LOG_TAG, "onServiceConnected.");
+            Log.d(TAG, "onServiceConnected.");
             handler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -244,7 +244,7 @@ public class MediaShrinkQueue {
                     sendMessenger = new Messenger(service);
                     receiveMessenger = new Messenger(new ReceiveResultHandler(
                             handler.getLooper()));
-                    Log.v(LOG_TAG, "send all requests. size:" + queue.size());
+                    Log.v(TAG, "send all requests. size:" + queue.size());
                     for (Request r : queue) {
                         if (!sendRequest(r)) {
                             // rebind はイベントに任せる
@@ -257,7 +257,7 @@ public class MediaShrinkQueue {
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
-            Log.e(LOG_TAG, "onServiceDisconnected.");
+            Log.e(TAG, "onServiceDisconnected.");
             handler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -285,7 +285,7 @@ public class MediaShrinkQueue {
 
         @Override
         public void handleMessage(Message msg) {
-            Log.d(LOG_TAG, "ReceiveResultHandler#handleMessage. what:" + msg.what);
+            Log.d(TAG, "ReceiveResultHandler#handleMessage. what:" + msg.what);
             switch (msg.what) {
                 case MediaShrinkService.RESULT_COMPLETE_MSGID: {
                     // 動画圧縮の途中でプロセスがkillされた際にゴミファイルが残らないように
@@ -299,7 +299,7 @@ public class MediaShrinkQueue {
                         Utils.copy(in, out);
                         request.deferred.resolve(request.workingFile.length());
                     } catch (IOException e) {
-                        Log.e(LOG_TAG, "Failed to rename temp file to dest file.", e);
+                        Log.e(TAG, "Failed to rename temp file to dest file.", e);
                         request.deferred.reject(e);
                     } finally {
                         Utils.closeSilently(out);
