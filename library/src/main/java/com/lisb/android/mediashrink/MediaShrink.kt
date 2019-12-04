@@ -113,7 +113,7 @@ internal class MediaShrink(private val context: Context) {
                 var newAudioTrack: Int? = null
                 if (audioTrack != null) {
                     audioShrink = AudioShrink(extractor, muxer, errorCallback)
-                    audioShrink.setBitRate(audioBitRate)
+                    audioShrink.bitRate = audioBitRate
                     newAudioTrack = muxer.addTrack(audioShrink.createOutputFormat(audioTrack))
                     progress += PROGRESS_ADD_TRACK
                     deliverProgress(progress, maxProgress)
@@ -134,10 +134,10 @@ internal class MediaShrink(private val context: Context) {
                 if (audioShrink != null) { // オーディオ圧縮の進捗を詳細に取れるようにする
                     val currentProgress = progress
                     val currentMaxProgress = maxProgress
-                    audioShrink.setOnProgressListener(OnProgressListener {
+                    audioShrink.onProgressListener = OnProgressListener {
                         deliverProgress(currentProgress + it * PROGRESS_WRITE_CONTENT / 100,
                                 currentMaxProgress)
-                    })
+                    }
                     audioShrink.shrink(audioTrack!!, newAudioTrack!!)
                     progress += PROGRESS_WRITE_CONTENT
                     deliverProgress(progress, maxProgress)
