@@ -25,15 +25,15 @@ class MediaShrinkService : Service() {
         val handler = ReceiveRequestHandler(bgThread.looper)
         messenger = Messenger(handler)
         mediaShrink = MediaShrink(this)
-        mediaShrink.setOnProgressListener(handler)
+        mediaShrink.onProgressListener = handler
     }
 
     override fun onBind(intent: Intent): IBinder? {
         Timber.tag(TAG).v("onBind")
-        mediaShrink.setWidth(intent.getIntExtra(EXTRA_WIDTH, -1))
-        mediaShrink.setVideoBitRate(intent.getIntExtra(EXTRA_VIDEO_BITRATE, -1))
-        mediaShrink.setAudioBitRate(intent.getIntExtra(EXTRA_AUDIO_BITRATE, -1))
-        mediaShrink.setDurationLimit(intent.getLongExtra(EXTRA_DURATION_LIMIT, -1))
+        mediaShrink.width = intent.getIntExtra(EXTRA_WIDTH, -1)
+        mediaShrink.videoBitRate = intent.getIntExtra(EXTRA_VIDEO_BITRATE, -1)
+        mediaShrink.audioBitRate = intent.getIntExtra(EXTRA_AUDIO_BITRATE, -1)
+        mediaShrink.durationLimit = intent.getLongExtra(EXTRA_DURATION_LIMIT, -1)
         return messenger.binder
     }
 
@@ -63,8 +63,8 @@ class MediaShrinkService : Service() {
             currentMessage = msg
             executorService.execute {
                 try {
-                    val inputUri = msg.data.getParcelable<Uri>(REQUEST_SHRINK_INPUT_URI)
-                    val outputPath = msg.data.getString(REQUEST_SHRINK_OUTPUT_PATH)
+                    val inputUri = msg.data.getParcelable<Uri>(REQUEST_SHRINK_INPUT_URI)!!
+                    val outputPath = msg.data.getString(REQUEST_SHRINK_OUTPUT_PATH)!!
                     mediaShrink.shrink(inputUri, outputPath, this@ReceiveRequestHandler)
                     respondSafely(Message.obtain(null, RESULT_COMPLETE_MSGID))
                 } catch (e: IOException) {
