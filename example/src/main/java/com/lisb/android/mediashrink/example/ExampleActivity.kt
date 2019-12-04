@@ -124,8 +124,7 @@ class ExampleActivity : AppCompatActivity(), View.OnClickListener {
     private fun shrink() {
         progress.visibility = View.VISIBLE
         outputDir.mkdirs()
-        val promise = mediaShrinkQueue
-                .queue(selectedVideoUri, Uri.fromFile(outputFile))
+        val promise = mediaShrinkQueue.queue(selectedVideoUri!!, Uri.fromFile(outputFile))
         promise.then {
             progress.visibility = View.GONE
             btnPlayReencodedVideo.isEnabled = true
