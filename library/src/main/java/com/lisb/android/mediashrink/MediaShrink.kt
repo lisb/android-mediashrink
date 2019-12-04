@@ -104,8 +104,8 @@ internal class MediaShrink(private val context: Context) {
                 var newVideoTrack: Int? = null
                 if (videoTrack != null) {
                     videoShrink = VideoShrink(extractor, metadataRetriever, muxer, errorCallback)
-                    videoShrink.setWidth(width)
-                    videoShrink.setBitRate(videoBitRate)
+                    videoShrink.width = width
+                    videoShrink.bitRate = videoBitRate
                     newVideoTrack = muxer.addTrack(videoShrink.createOutputFormat(videoTrack))
                     progress += PROGRESS_ADD_TRACK
                     deliverProgress(progress, maxProgress)
@@ -123,10 +123,10 @@ internal class MediaShrink(private val context: Context) {
                 if (videoShrink != null) { // ビデオ圧縮の進捗を詳細に取れるようにする
                     val currentProgress = progress
                     val currentMaxProgress = maxProgress
-                    videoShrink.setOnProgressListener(OnProgressListener {
+                    videoShrink.onProgressListener = OnProgressListener {
                         deliverProgress(currentProgress + it * PROGRESS_WRITE_CONTENT / 100,
                                 currentMaxProgress)
-                    })
+                    }
                     videoShrink.shrink(videoTrack!!, newVideoTrack!!)
                     progress += PROGRESS_WRITE_CONTENT
                     deliverProgress(progress, maxProgress)
