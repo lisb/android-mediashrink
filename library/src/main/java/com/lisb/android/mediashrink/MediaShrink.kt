@@ -200,7 +200,7 @@ internal class MediaShrink(private val context: Context) {
         private const val TAG = "MediaShrink"
         private const val PROGRESS_ADD_TRACK = 10
         private const val PROGRESS_WRITE_CONTENT = 40
-        fun isSupportedDevice(context: Context?): Boolean {
+        fun isSupportedDevice(context: Context): Boolean {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR2) {
                 return false
             }

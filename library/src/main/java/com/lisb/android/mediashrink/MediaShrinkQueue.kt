@@ -275,6 +275,6 @@ class MediaShrinkQueue(private val context: Context,
         // delay unbind to reuse service
         private const val DELAY_UNBIND = 10 * 1000L
 
-        fun isSupportedDevice(context: Context?): Boolean = MediaShrink.isSupportedDevice(context)
+        fun isSupportedDevice(context: Context): Boolean = MediaShrink.isSupportedDevice(context)
     }
 }
