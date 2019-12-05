@@ -117,7 +117,7 @@ class VideoShrink(private val extractor: MediaExtractor,
             // lollipop から Surface への出力時に自動で回転して出力するようになったため、こちら側では回転を行わない。
             // https://android.googlesource.com/platform/frameworks/av/+blame/lollipop-release/media/libstagefright/Utils.cpp
             outputSurface = OutputSurface(if (Build.VERSION.SDK_INT >= 21) 0f else (-rotation).toFloat())
-            decoder = createDecoder(currentFormat, outputSurface.surface)
+            decoder = createDecoder(currentFormat, outputSurface.surface!!)
             if (decoder == null) {
                 Timber.tag(TAG).e("video decoder not found.")
                 throw DecodeException("video decoder not found.")
