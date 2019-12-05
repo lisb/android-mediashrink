@@ -48,7 +48,7 @@ class VideoShrink(private val extractor: MediaExtractor,
         val widthRatio = width.toFloat() / originWidth
         // アスペクト比を保ったまま、16の倍数になるように(エンコードの制限) width, height を指定する。
         val height = getMultipliesOf16(originHeight * widthRatio)
-        val format = MediaFormat.createVideoFormat(CODEC, width,
+        val format = MediaFormat.createVideoFormat(ENCODE_MIMETYPE, width,
                 height)
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT,
                 MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
@@ -308,9 +308,14 @@ class VideoShrink(private val extractor: MediaExtractor,
 
     @Throws(DecoderCreationException::class)
     private fun createDecoder(format: MediaFormat, surface: Surface): MediaCodec? {
-        val codecName = Utils
-                .selectCodec(format.getString(MediaFormat.KEY_MIME), false)
-                .name
+        val mimeType = format.getString(MediaFormat.KEY_MIME)
+        val codec = Utils.selectCodec(mimeType, false)
+        if (codec == null) {
+            val detailMessage = "video decoder codec is not found. mime-type:$mimeType"
+            Timber.tag(TAG).e(detailMessage)
+            throw DecoderCreationException(detailMessage)
+        }
+        val codecName = codec.name
         return try {
             val decoder: MediaCodec? = MediaCodec.createByCodecName(codecName)
             if (decoder != null) {
@@ -331,11 +336,16 @@ class VideoShrink(private val extractor: MediaExtractor,
 
     @Throws(EncoderCreationException::class)
     private fun createEncoder(format: MediaFormat): MediaCodec {
-        val codecName = Utils.selectCodec(CODEC, true).name
+        val codec = Utils.selectCodec(ENCODE_MIMETYPE, true)
+        if (codec == null) {
+            val detailMessage = "video encoder codec is not found. mime-type:$ENCODE_MIMETYPE"
+            Timber.tag(TAG).e(detailMessage)
+            throw EncoderCreationException(detailMessage)
+        }
+        val codecName = codec.name
         return try {
             val encoder = MediaCodec.createByCodecName(codecName)
-            encoder.configure(format, null, null,
-                    MediaCodec.CONFIGURE_FLAG_ENCODE)
+            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             Timber.tag(TAG).d("video encoder:%s", encoder.name)
             encoder
         } catch (e: IOException) { // later Lollipop.
@@ -352,7 +362,7 @@ class VideoShrink(private val extractor: MediaExtractor,
     companion object {
         private const val TAG = "VideoShrink"
         private const val DEBUG = false // デバッグ用にスナップショットを出力する
-        private const val CODEC = "video/avc"
+        private const val ENCODE_MIMETYPE = "video/avc"
         private const val TIMEOUT_USEC: Long = 250
         private const val I_FRAME_INTERVAL = 5
         // フレームレートはビットレート/フレームレートでフレーム一枚あたりのビット数を割り出すために存在する。

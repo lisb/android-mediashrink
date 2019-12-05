@@ -219,6 +219,7 @@ class MediaShrinkQueue(private val context: Context,
                     try {
                         inStream = FileInputStream(request.workingFile)
                         outStream = context.contentResolver.openOutputStream(request.dest)
+                                ?: throw IOException("output stream is null")
                         Utils.copy(inStream, outStream)
                         request.deferred.resolve(request.workingFile.length())
                     } catch (e: IOException) {

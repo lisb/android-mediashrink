@@ -19,7 +19,7 @@ class AudioShrink(private val extractor: MediaExtractor,
     private fun createEncoderConfigurationFormat(origin: MediaFormat): MediaFormat {
         val channelCount = origin
                 .getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-        val format = MediaFormat.createAudioFormat(CODEC,
+        val format = MediaFormat.createAudioFormat(ENCODE_MIMETYPE,
                 origin.getInteger(MediaFormat.KEY_SAMPLE_RATE), channelCount)
         // TODO ビットレートが元の値より大きくならないようにする
         format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate)
@@ -259,7 +259,13 @@ class AudioShrink(private val extractor: MediaExtractor,
     @Throws(DecoderCreationException::class)
     private fun createDecoder(format: MediaFormat): MediaCodec? {
         val mimeType = format.getString(MediaFormat.KEY_MIME)
-        val codecName = Utils.selectCodec(mimeType, false).name
+        val codec = Utils.selectCodec(mimeType, false)
+        if (codec == null) {
+            val detailMessage = "audio decoder codec is not found. mime-type:$mimeType"
+            Timber.tag(TAG).e(detailMessage)
+            throw DecoderCreationException(detailMessage)
+        }
+        val codecName = codec.name
         return try {
             val decoder: MediaCodec? = MediaCodec.createByCodecName(codecName)
             if (decoder != null) {
@@ -280,7 +286,13 @@ class AudioShrink(private val extractor: MediaExtractor,
 
     @Throws(EncoderCreationException::class)
     private fun createEncoder(format: MediaFormat): MediaCodec {
-        val codecName = Utils.selectCodec(CODEC, true).name
+        val codec = Utils.selectCodec(ENCODE_MIMETYPE, true)
+        if (codec == null) {
+            val detailMessage = "audio encoder codec is not found. media-type:$ENCODE_MIMETYPE"
+            Timber.tag(TAG).e(detailMessage)
+            throw EncoderCreationException(detailMessage)
+        }
+        val codecName = codec.name
         return try {
             val encoder = MediaCodec.createByCodecName(codecName)
             encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
@@ -307,7 +319,7 @@ class AudioShrink(private val extractor: MediaExtractor,
     companion object {
         private const val TAG = "AudioShrink"
         private const val TIMEOUT_USEC: Long = 250
-        private const val CODEC = "audio/mp4a-latm"
+        private const val ENCODE_MIMETYPE = "audio/mp4a-latm"
         // Because AACObjectHE of some encoder(ex. OMX.google.aac.encoder) is buggy,
         // Don't use AACObjectHE.
         //
