@@ -123,9 +123,11 @@ internal class MediaShrink(private val context: Context) {
                 if (videoShrink != null) { // ビデオ圧縮の進捗を詳細に取れるようにする
                     val currentProgress = progress
                     val currentMaxProgress = maxProgress
-                    videoShrink.onProgressListener = OnProgressListener {
-                        deliverProgress(currentProgress + it * PROGRESS_WRITE_CONTENT / 100,
-                                currentMaxProgress)
+                    videoShrink.onProgressListener = object : OnProgressListener {
+                        override fun onProgress(progress: Int) {
+                            deliverProgress(currentProgress + progress * PROGRESS_WRITE_CONTENT / 100,
+                                    currentMaxProgress)
+                        }
                     }
                     videoShrink.shrink(videoTrack!!, newVideoTrack!!)
                     progress += PROGRESS_WRITE_CONTENT
@@ -134,9 +136,11 @@ internal class MediaShrink(private val context: Context) {
                 if (audioShrink != null) { // オーディオ圧縮の進捗を詳細に取れるようにする
                     val currentProgress = progress
                     val currentMaxProgress = maxProgress
-                    audioShrink.onProgressListener = OnProgressListener {
-                        deliverProgress(currentProgress + it * PROGRESS_WRITE_CONTENT / 100,
-                                currentMaxProgress)
+                    audioShrink.onProgressListener = object : OnProgressListener {
+                        override fun onProgress(progress: Int) {
+                            deliverProgress(currentProgress + progress * PROGRESS_WRITE_CONTENT / 100,
+                                    currentMaxProgress)
+                        }
                     }
                     audioShrink.shrink(audioTrack!!, newAudioTrack!!)
                     progress += PROGRESS_WRITE_CONTENT
