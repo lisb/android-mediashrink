@@ -103,7 +103,7 @@ internal class OutputSurface(rotation: Float) : OnFrameAvailableListener {
     /**
      * Replaces the fragment shader.
      */
-    fun changeFragmentShader(fragmentShader: String?) {
+    fun changeFragmentShader(fragmentShader: String) {
         mTextureRender!!.changeFragmentShader(fragmentShader)
     }
 
@@ -126,7 +126,7 @@ internal class OutputSurface(rotation: Float) : OnFrameAvailableListener {
         // Latch the data.
         mTextureRender!!.checkGlError("before updateTexImage")
         mSurfaceTexture!!.updateTexImage()
-        mTextureRender!!.drawFrame(mSurfaceTexture, snapshotOptions)
+        mTextureRender!!.drawFrame(mSurfaceTexture!!, snapshotOptions)
     }
 
     override fun onFrameAvailable(st: SurfaceTexture) {
