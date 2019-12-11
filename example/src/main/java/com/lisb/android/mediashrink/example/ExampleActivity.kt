@@ -17,16 +17,19 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
 import com.lisb.android.mediashrink.MediaShrinkQueue
+import kotlinx.coroutines.*
 import timber.log.Timber
 import java.io.File
+import kotlin.coroutines.CoroutineContext
 
-class ExampleActivity : AppCompatActivity(), View.OnClickListener {
+class ExampleActivity : AppCompatActivity(), View.OnClickListener, CoroutineScope {
     private lateinit var progress: View
     private lateinit var txtSelectedVideoPath: TextView
     private lateinit var btnStartReencoding: View
     private lateinit var btnPlaySelectedVideo: View
     private lateinit var btnPlayReencodedVideo: View
     private lateinit var mediaShrinkQueue: MediaShrinkQueue
+    private lateinit var job: Job
     private var selectedVideoUri: Uri? = null
 
     private val outputDir: File
@@ -34,9 +37,13 @@ class ExampleActivity : AppCompatActivity(), View.OnClickListener {
     private val outputFile: File
         get() = File(outputDir, EXPORT_FILE)
 
+    override val coroutineContext: CoroutineContext
+        get() = job + Dispatchers.Main
+
     @SuppressLint("SetTextI18n")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        job = SupervisorJob()
         setContentView(R.layout.activity_example)
         // wiring
         val btnCaptureVideo = findViewById<View>(R.id.btn_select_video)
@@ -59,6 +66,11 @@ class ExampleActivity : AppCompatActivity(), View.OnClickListener {
         }
         mediaShrinkQueue = MediaShrinkQueue(this, Handler(), filesDir,
                 MAX_WIDTH, VIDEO_BITRATE, AUDIO_BITRATE, DURATION_LIMIT)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        job.cancel()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -124,21 +136,22 @@ class ExampleActivity : AppCompatActivity(), View.OnClickListener {
     private fun shrink() {
         progress.visibility = View.VISIBLE
         outputDir.mkdirs()
-        val promise = mediaShrinkQueue.queue(selectedVideoUri!!, Uri.fromFile(outputFile))
-        promise.then {
-            progress.visibility = View.GONE
-            btnPlayReencodedVideo.isEnabled = true
-            Toast.makeText(this@ExampleActivity, "Success!", Toast.LENGTH_SHORT).show()
-        }.fail { result ->
-            Timber.tag(TAG).e(result, "Failed to shrink media.")
-            progress.visibility = View.GONE
-            btnPlayReencodedVideo.isEnabled = true
-            outputFile.delete()
-            var errorMessage = result.message
-            if (errorMessage == null || errorMessage.isEmpty()) {
-                errorMessage = "Failed to shrink."
+
+        launch {
+            try {
+                mediaShrinkQueue.queue(selectedVideoUri!!, Uri.fromFile(outputFile))
+                progress.visibility = View.GONE
+                btnPlayReencodedVideo.isEnabled = true
+                Toast.makeText(this@ExampleActivity, "Success!", Toast.LENGTH_SHORT).show()
+            } catch (t: Throwable) {
+                Timber.tag(TAG).e(t, "Failed to shrink media.")
+                progress.visibility = View.GONE
+                btnPlayReencodedVideo.isEnabled = true
+                outputFile.delete()
+                var errorMessage = t.message
+                if (errorMessage.isNullOrEmpty()) errorMessage = "Failed to sh≤rink."
+                Toast.makeText(this@ExampleActivity, errorMessage, Toast.LENGTH_SHORT).show()
             }
-            Toast.makeText(this@ExampleActivity, errorMessage, Toast.LENGTH_SHORT).show()
         }
     }
 

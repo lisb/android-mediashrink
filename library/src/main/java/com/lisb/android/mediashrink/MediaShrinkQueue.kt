@@ -7,12 +7,13 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.net.Uri
 import android.os.*
-import org.jdeferred.Deferred
-import org.jdeferred.Promise
-import org.jdeferred.impl.DeferredObject
 import timber.log.Timber
 import java.io.*
 import java.util.*
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlin.coroutines.suspendCoroutine
 
 class MediaShrinkQueue(private val context: Context,
                        private val handler: Handler,
@@ -42,10 +43,9 @@ class MediaShrinkQueue(private val context: Context,
     /**
      * Return file size when succeed to shrink.
      */
-    fun queue(source: Uri, dest: Uri): Promise<Long, Exception, Int> {
-        val deferred = DeferredObject<Long, Exception, Int>()
+    suspend fun queue(source: Uri, dest: Uri, progress: ((Int) -> Unit)? = null) = suspendCoroutine<Long> { continuation ->
         try {
-            val request = Request(deferred, source, dest, createWorkingFile())
+            val request = Request(continuation, progress, source, dest, createWorkingFile())
             handler.post(object : Runnable {
                 override fun run() {
                     if (isUnbinding()) {
@@ -57,7 +57,7 @@ class MediaShrinkQueue(private val context: Context,
                         bindService()
                     } catch (e: IOException) {
                         Timber.tag(TAG).e(e, "Failed to bind service.")
-                        request.deferred.reject(e)
+                        request.deferred.resumeWithException(e)
                         return
                     }
 
@@ -69,9 +69,8 @@ class MediaShrinkQueue(private val context: Context,
             })
         } catch (e: IOException) {
             Timber.tag(TAG).e(e, "Failed to create working file")
-            deferred.reject(e)
+            continuation.resumeWithException(e)
         }
-        return deferred
     }
 
     @Throws(IOException::class)
@@ -113,8 +112,7 @@ class MediaShrinkQueue(private val context: Context,
     private fun sendRequest(r: Request): Boolean {
         assert(sendMessenger != null)
         assert(Looper.myLooper() == handler.looper)
-        val m = Message.obtain(null,
-                MediaShrinkService.REQUEST_SHRINK_MSGID)
+        val m = Message.obtain(null, MediaShrinkService.REQUEST_SHRINK_MSGID)
         val data = Bundle()
         data.putParcelable(MediaShrinkService.REQUEST_SHRINK_INPUT_URI, r.source)
         data.putString(MediaShrinkService.REQUEST_SHRINK_OUTPUT_PATH, r.workingFile.absolutePath)
@@ -141,7 +139,7 @@ class MediaShrinkQueue(private val context: Context,
                 Timber.tag(TAG).e(e, "Failed to reconnect service.")
                 val remains = queue.toTypedArray()
                 queue.clear()
-                for (r in remains) r.deferred.reject(e)
+                for (r in remains) r.deferred.resumeWithException(e)
             }
         }
     }
@@ -194,9 +192,7 @@ class MediaShrinkQueue(private val context: Context,
             Timber.tag(TAG).e("onServiceDisconnected.")
             handler.post {
                 val request = queue.poll()
-                if (request?.deferred?.state() == Promise.State.PENDING) {
-                    request.deferred.reject(RuntimeException("process killed."))
-                }
+                request?.deferred?.resumeWithException(RuntimeException("process killed."))
                 request?.workingFile?.delete()
                 bound = false
                 sendMessenger = null
@@ -221,10 +217,10 @@ class MediaShrinkQueue(private val context: Context,
                         outStream = context.contentResolver.openOutputStream(request.dest)
                                 ?: throw IOException("output stream is null")
                         Utils.copy(inStream, outStream)
-                        request.deferred.resolve(request.workingFile.length())
+                        request.deferred.resume(request.workingFile.length())
                     } catch (e: IOException) {
                         Timber.tag(TAG).e(e, "Failed to rename temp file to dest file.")
-                        request.deferred.reject(e)
+                        request.deferred.resumeWithException(e)
                     } finally {
                         Utils.closeSilently(outStream)
                         Utils.closeSilently(inStream)
@@ -235,8 +231,8 @@ class MediaShrinkQueue(private val context: Context,
                 MediaShrinkService.RESULT_RECOVERABLE_ERROR_MSGID -> {
                     val request = queue.poll()!!
                     val ex = msg.data.getSerializable(MediaShrinkService.RESULT_RECOVERABLE_ERROR_EXCEPTION)
-                            as? java.lang.Exception
-                    request.deferred.reject(ex)
+                            as Exception
+                    request.deferred.resumeWithException(ex)
                     request.workingFile.delete()
                     unbindServiceIfQueueIsEmptyDelayed()
                 }
@@ -244,14 +240,14 @@ class MediaShrinkQueue(private val context: Context,
                     // rebind や request のキューからの除去は onServiceDisconnected に任せる
                     val request = queue.peek()!!
                     val ex = msg.data.getSerializable(MediaShrinkService.RESULT_UNRECOVERABLE_ERROR_EXCEPTION)
-                            as? java.lang.Exception
-                    request.deferred.reject(ex)
+                            as Exception
+                    request.deferred.resumeWithException(ex)
                     request.workingFile.delete()
                     unbindServiceIfQueueIsEmpty()
                 }
                 MediaShrinkService.RESULT_PROGRESS_MSGID -> {
                     val request = queue.peek()!!
-                    request.deferred.notify(msg.arg1)
+                    request.progress?.invoke(msg.arg1)
                 }
             }
         }
@@ -263,7 +259,8 @@ class MediaShrinkQueue(private val context: Context,
         }
     }
 
-    private data class Request(val deferred: Deferred<Long, Exception, Int>,
+    private data class Request(val deferred: Continuation<Long>,
+                               val progress: ((Int) -> Unit)?,
                                val source: Uri,
                                val dest: Uri,
                                val workingFile: File)

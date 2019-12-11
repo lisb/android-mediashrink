@@ -24,9 +24,10 @@ android {
 
 dependencies {
     api fileTree(dir: 'libs', include: '*.jar')
-    api 'org.jdeferred:jdeferred-core:1.2.5-lisb-1'
     api 'com.jakewharton.timber:timber:4.7.1'
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+    api "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+    api 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.3.2'
+    api 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.3.2'
 }
 
 task androidSourcesJar(type: Jar) {
