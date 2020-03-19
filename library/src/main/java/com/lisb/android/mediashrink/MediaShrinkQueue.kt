@@ -189,7 +189,7 @@ class MediaShrinkQueue(private val context: Context,
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
-            Timber.tag(TAG).e("onServiceDisconnected.")
+            Timber.tag(TAG).e("onServiceDisconnected:%s", name)
             handler.post {
                 val request = queue.poll()
                 request?.deferred?.resumeWithException(RuntimeException("process killed."))
@@ -237,8 +237,7 @@ class MediaShrinkQueue(private val context: Context,
                     unbindServiceIfQueueIsEmptyDelayed()
                 }
                 MediaShrinkService.RESULT_UNRECOVERABLE_ERROR_MSGID -> {
-                    // rebind や request のキューからの除去は onServiceDisconnected に任せる
-                    val request = queue.peek()!!
+                    val request = queue.poll()!!
                     val ex = msg.data.getSerializable(MediaShrinkService.RESULT_UNRECOVERABLE_ERROR_EXCEPTION)
                             as Exception
                     request.deferred.resumeWithException(ex)
