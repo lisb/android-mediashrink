@@ -164,41 +164,42 @@ class VideoShrink(private val extractor: MediaExtractor,
                     }
                     Timber.tag(TAG).v("video decoder output. time:%d, offset:%d, size:%d, flags:%d",
                             decoderOutputBufferInfo.presentationTimeUs,
-                            decoderOutputBufferInfo.offset, decoderOutputBufferInfo.size,
+                            decoderOutputBufferInfo.offset,
+                            decoderOutputBufferInfo.size,
                             decoderOutputBufferInfo.flags)
+                    // NOTE: flags が MediaCodec.BUFFER_FLAG_CODEC_CONFIG かつ BUFFER_FLAG_END_OF_STREAM
+                    // のときがあるので注意。
                     if (decoderOutputBufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
-                        decoder.releaseOutputBuffer(decoderOutputBufferIndex,
-                                false)
-                        break
-                    }
-                    val render = decoderOutputBufferInfo.size != 0
-                    decoder.releaseOutputBuffer(decoderOutputBufferIndex,
-                            render)
-                    if (decoderOutputBufferInfo.size != 0) {
-                        frameCount++
-                    }
-                    if (render) {
-                        if (snapshotOptions != null && snapshotIndex * snapshotDuration <= decoderOutputBufferInfo.presentationTimeUs) {
-                            snapshotOptions.file = getSnapshotFile(
-                                    snapshotIndex,
-                                    decoderOutputBufferInfo.presentationTimeUs)
-                            outputSurface.drawNewImage(snapshotOptions)
-                            snapshotIndex++
-                        } else {
-                            outputSurface.drawNewImage(null)
+                        decoder.releaseOutputBuffer(decoderOutputBufferIndex, false)
+                    } else {
+                        val render = decoderOutputBufferInfo.size != 0
+                        decoder.releaseOutputBuffer(decoderOutputBufferIndex, render)
+                        if (decoderOutputBufferInfo.size != 0) {
+                            frameCount++
                         }
-                        val presentaionTimeMs = decoderOutputBufferInfo.presentationTimeUs / 1000
-                        if (lastDecodePresentationTimeMs <= 0
-                                || presentaionTimeMs
-                                - lastDecodePresentationTimeMs >= MAX_FRAME_INTERVAL_MS) { // lastDecodePresentaitonTimeMs
+                        if (render) {
+                            if (snapshotOptions != null && snapshotIndex * snapshotDuration <= decoderOutputBufferInfo.presentationTimeUs) {
+                                snapshotOptions.file = getSnapshotFile(
+                                        snapshotIndex,
+                                        decoderOutputBufferInfo.presentationTimeUs)
+                                outputSurface.drawNewImage(snapshotOptions)
+                                snapshotIndex++
+                            } else {
+                                outputSurface.drawNewImage(null)
+                            }
+                            val presentaionTimeMs = decoderOutputBufferInfo.presentationTimeUs / 1000
+                            if (lastDecodePresentationTimeMs <= 0
+                                    || presentaionTimeMs
+                                    - lastDecodePresentationTimeMs >= MAX_FRAME_INTERVAL_MS) { // lastDecodePresentaitonTimeMs
 // が0以下の場合は特殊なケースになりそうなので間引く対象から外す。
-                            inputSurface
-                                    .setPresentationTime(decoderOutputBufferInfo.presentationTimeUs * 1000)
-                            inputSurface.swapBuffers()
-                            lastDecodePresentationTimeMs = presentaionTimeMs
-                        } else {
-                            Timber.tag(TAG).i("Frame removed because frame interval is too short. current:%d, last:%d",
-                                    presentaionTimeMs, lastDecodePresentationTimeMs)
+                                inputSurface
+                                        .setPresentationTime(decoderOutputBufferInfo.presentationTimeUs * 1000)
+                                inputSurface.swapBuffers()
+                                lastDecodePresentationTimeMs = presentaionTimeMs
+                            } else {
+                                Timber.tag(TAG).i("Frame removed because frame interval is too short. current:%d, last:%d",
+                                        presentaionTimeMs, lastDecodePresentationTimeMs)
+                            }
                         }
                     }
                     if (decoderOutputBufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
@@ -232,33 +233,36 @@ class VideoShrink(private val extractor: MediaExtractor,
                         break
                     }
                     val encoderOutputBuffer = encoderOutputBuffers[encoderOutputBufferIndex]
-                    Timber.tag(TAG).v("video encoder output. time:%d, offset:%d, size:%d, flags:%d",
-                            encoderOutputBufferInfo.presentationTimeUs,
-                            encoderOutputBufferInfo.offset, encoderOutputBufferInfo.size,
-                            encoderOutputBufferInfo.flags)
-                    if (encoderOutputBufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) { // エンコーダに何か入力しないと、ここに来ないエンコーダがあるので注意。
-                        encoder.releaseOutputBuffer(encoderOutputBufferIndex,
-                                false)
-                        break
-                    }
-                    if (encoderOutputBufferInfo.size != 0) {
-                        if (newTrackIndex != null) {
-                            muxer.writeSampleData(newTrackIndex,
-                                    encoderOutputBuffer,
-                                    encoderOutputBufferInfo)
-                            // 進捗更新
-                            if ((System.nanoTime() - startTimeNs) / 1000 / 1000 > UPDATE_PROGRESS_INTERVAL_MS
-                                    * (deliverProgressCount + 1)) {
-                                deliverProgressCount++
-                                onProgressListener?.onProgress((encoderOutputBufferInfo.presentationTimeUs * 100 / durationUs).toInt())
+                    // NOTE:エンコーダに何か入力しないと
+                    // encoderOutputBufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
+                    // にならないエンコーダがあるので注意。
+                    // NOTE: flags が MediaCodec.BUFFER_FLAG_CODEC_CONFIG かつ BUFFER_FLAG_END_OF_STREAM
+                    // のときがあるので注意。
+                    if (encoderOutputBufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0) {
+                        if (encoderOutputBufferInfo.size != 0) {
+                            if (newTrackIndex != null) {
+                                muxer.writeSampleData(newTrackIndex,
+                                        encoderOutputBuffer,
+                                        encoderOutputBufferInfo)
+                                // 進捗更新
+                                if ((System.nanoTime() - startTimeNs) / 1000 / 1000 > UPDATE_PROGRESS_INTERVAL_MS
+                                        * (deliverProgressCount + 1)) {
+                                    deliverProgressCount++
+                                    onProgressListener?.onProgress((encoderOutputBufferInfo.presentationTimeUs * 100 / durationUs).toInt())
+                                }
                             }
                         }
                     }
+                    Timber.tag(TAG).v("video encoder output. time:%d, offset:%d, size:%d, flags:%d",
+                            encoderOutputBufferInfo.presentationTimeUs,
+                            encoderOutputBufferInfo.offset,
+                            encoderOutputBufferInfo.size,
+                            encoderOutputBufferInfo.flags)
+                    encoder.releaseOutputBuffer(encoderOutputBufferIndex, false)
                     if (encoderOutputBufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
                         Timber.tag(TAG).d("video encoder: EOS")
                         return
                     }
-                    encoder.releaseOutputBuffer(encoderOutputBufferIndex, false)
                     break
                 }
             }

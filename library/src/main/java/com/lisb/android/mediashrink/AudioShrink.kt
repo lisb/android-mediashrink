@@ -114,15 +114,18 @@ class AudioShrink(private val extractor: MediaExtractor,
 
                     if (decoderOutputBufferIndex < 0) break
 
+                    // NOTE: flags が MediaCodec.BUFFER_FLAG_CODEC_CONFIG かつ BUFFER_FLAG_END_OF_STREAM
+                    // のときがあるので注意。
                     if (decoderOutputBufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
-                        decoder.releaseOutputBuffer(decoderOutputBufferIndex,
-                                false)
+                        decoder.releaseOutputBuffer(decoderOutputBufferIndex, false)
                         break
                     }
                     pendingDecoderOutputBufferIndex = decoderOutputBufferIndex
                     val pts = decoderOutputBufferInfo.presentationTimeUs
                     Timber.tag(TAG).v("audio decoder output. time:%d, offset:%d, size:%d, flags:%d",
-                            pts, decoderOutputBufferInfo.offset, decoderOutputBufferInfo.size,
+                            pts,
+                            decoderOutputBufferInfo.offset,
+                            decoderOutputBufferInfo.size,
                             decoderOutputBufferInfo.flags)
                     if (lastDecoderOutputPts >= pts) {
                         Timber.tag(TAG).w("decoder output pts(%d) is smaller than last pts(%d)",
@@ -134,8 +137,7 @@ class AudioShrink(private val extractor: MediaExtractor,
                 }
                 // write to encoder
                 while (pendingDecoderOutputBufferIndex != -1) {
-                    val encoderInputBufferIndex = encoder
-                            .dequeueInputBuffer(TIMEOUT_USEC)
+                    val encoderInputBufferIndex = encoder.dequeueInputBuffer(TIMEOUT_USEC)
                     if (encoderInputBufferIndex < 0) {
                         break
                     }
@@ -183,39 +185,40 @@ class AudioShrink(private val extractor: MediaExtractor,
                         break
                     }
                     val encoderOutputBuffer = encoderOutputBuffers[encoderOutputBufferIndex]
-                    if (encoderOutputBufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
-                        encoder.releaseOutputBuffer(encoderOutputBufferIndex,
-                                false)
-                        break
-                    }
-                    val pts = encoderOutputBufferInfo.presentationTimeUs
-                    Timber.tag(TAG).v("audio encoder output. time:%d, offset:%d, size:%d, flags:%d",
-                            pts, encoderOutputBufferInfo.offset, encoderOutputBufferInfo.size,
-                            encoderOutputBufferInfo.flags)
-                    if (encoderOutputBufferInfo.size != 0) {
-                        if (lastEncoderOutputPts >= pts) {
-                            Timber.tag(TAG).w("encoder output pts(%d) is smaller than last pts(%d)",
-                                    pts, lastEncoderOutputPts)
-                        } else {
-                            if (newTrackIndex != null) {
-                                muxer.writeSampleData(newTrackIndex,
-                                        encoderOutputBuffer,
-                                        encoderOutputBufferInfo)
-                                lastEncoderOutputPts = pts
-                                // 進捗更新
-                                if ((System.nanoTime() - startTimeNs) / 1000 / 1000 > UPDATE_PROGRESS_INTERVAL_MS
-                                        * (deliverProgressCount + 1)) {
-                                    deliverProgressCount++
-                                    onProgressListener?.onProgress((encoderOutputBufferInfo.presentationTimeUs * 100 / durationUs).toInt())
+                    // NOTE: flags が MediaCodec.BUFFER_FLAG_CODEC_CONFIG かつ BUFFER_FLAG_END_OF_STREAM
+                    // のときがあるので注意。
+                    if (encoderOutputBufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0) {
+                        val pts = encoderOutputBufferInfo.presentationTimeUs
+                        if (encoderOutputBufferInfo.size != 0) {
+                            if (lastEncoderOutputPts >= pts) {
+                                Timber.tag(TAG).w("encoder output pts(%d) is smaller than last pts(%d)",
+                                        pts, lastEncoderOutputPts)
+                            } else {
+                                if (newTrackIndex != null) {
+                                    muxer.writeSampleData(newTrackIndex,
+                                            encoderOutputBuffer,
+                                            encoderOutputBufferInfo)
+                                    lastEncoderOutputPts = pts
+                                    // 進捗更新
+                                    if ((System.nanoTime() - startTimeNs) / 1000 / 1000 > UPDATE_PROGRESS_INTERVAL_MS
+                                            * (deliverProgressCount + 1)) {
+                                        deliverProgressCount++
+                                        onProgressListener?.onProgress((encoderOutputBufferInfo.presentationTimeUs * 100 / durationUs).toInt())
+                                    }
                                 }
                             }
                         }
                     }
+                    Timber.tag(TAG).v("audio encoder output. time:%d, offset:%d, size:%d, flags:%d",
+                            encoderOutputBufferInfo.presentationTimeUs,
+                            encoderOutputBufferInfo.offset,
+                            encoderOutputBufferInfo.size,
+                            encoderOutputBufferInfo.flags)
+                    encoder.releaseOutputBuffer(encoderOutputBufferIndex, false)
                     if (encoderOutputBufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
                         Timber.tag(TAG).d("audio encoder: EOS")
                         return
                     }
-                    encoder.releaseOutputBuffer(encoderOutputBufferIndex, false)
                     break
                 }
             }
