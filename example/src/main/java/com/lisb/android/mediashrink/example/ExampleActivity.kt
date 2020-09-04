@@ -64,7 +64,7 @@ class ExampleActivity : AppCompatActivity(), View.OnClickListener, CoroutineScop
         if (outputFile.exists()) {
             btnPlayReencodedVideo.isEnabled = true
         }
-        mediaShrinkQueue = MediaShrinkQueue(this, Handler(), filesDir,
+        mediaShrinkQueue = MediaShrinkQueue(this.applicationContext, Handler(), filesDir,
                 MAX_WIDTH, VIDEO_BITRATE, AUDIO_BITRATE, DURATION_LIMIT)
     }
 
