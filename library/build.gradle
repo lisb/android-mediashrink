@@ -5,7 +5,7 @@ apply plugin: 'com.github.dcendents.android-maven'
 
 group = 'com.lisb.android.mediashrink'
 archivesBaseName = 'mediashrink'
-version = '2.0.1-SNAPSHOT'
+version = '2.0.1'
 
 android {
     compileSdkVersion android_compile_sdk_version
