@@ -82,6 +82,8 @@ class VideoShrink(private val extractor: MediaExtractor,
 
     @Throws(DecodeException::class)
     private fun reencode(trackIndex: Int, newTrackIndex: Int?, listener: ReencodeListener?) {
+        Timber.tag(TAG).d("reencode. trackIndex:%d, newTrackIndex:%d, isNull(listener):%b",
+                trackIndex, newTrackIndex, listener == null)
         val currentFormat = extractor.getTrackFormat(trackIndex)
         var encoder: MediaCodec? = null
         var decoder: MediaCodec? = null
@@ -101,8 +103,6 @@ class VideoShrink(private val extractor: MediaExtractor,
             inputSurface.makeCurrent()
             encoder.start()
             val encoderOutputBufferInfo = MediaCodec.BufferInfo()
-            var encoderOutputBuffers = encoder.outputBuffers
-
             val snapshotOptions: SnapshotOptions?
             val snapshotDuration: Long
             if (DEBUG) {
@@ -123,7 +123,6 @@ class VideoShrink(private val extractor: MediaExtractor,
                 throw DecodeException("video decoder not found.")
             }
             decoder.start()
-            val decoderInputBuffers = decoder.inputBuffers
             val decoderOutputBufferInfo = MediaCodec.BufferInfo()
             extractor.selectTrack(trackIndex)
             var frameCount = 0
@@ -132,13 +131,13 @@ class VideoShrink(private val extractor: MediaExtractor,
                 while (!extractorDone) {
                     val decoderInputBufferIndex = decoder.dequeueInputBuffer(TIMEOUT_USEC)
                     if (decoderInputBufferIndex < 0) break
-                    val decoderInputBuffer = decoderInputBuffers[decoderInputBufferIndex]
+                    val decoderInputBuffer = requireNotNull(decoder.getInputBuffer(decoderInputBufferIndex))
                     val size = extractor.readSampleData(decoderInputBuffer, 0)
                     // extractor.advance() より先に行うこと
                     val sampleTime = extractor.sampleTime
                     var sampleFlags = extractor.sampleFlags
-                    Timber.tag(TAG).v("video extractor output. size:%d, sample time:%d, sample flags:%d",
-                            size, sampleTime, sampleFlags)
+                    Timber.tag(TAG).v("video extractor output. buffer.pos:%d, buffer.limit:%d, size:%d, sample time:%d, sample flags:%d",
+                            decoderInputBuffer.position(), decoderInputBuffer.limit(), size, sampleTime, sampleFlags)
                     extractorDone = !extractor.advance()
                     if (extractorDone) {
                         Timber.tag(TAG).d("video extractor: EOS, size:%d", size)
@@ -216,23 +215,16 @@ class VideoShrink(private val extractor: MediaExtractor,
                 while (true) {
                     val encoderOutputBufferIndex = encoder.dequeueOutputBuffer(encoderOutputBufferInfo,
                             TIMEOUT_USEC)
-                    if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
-                        Timber.tag(TAG).d("video encoder: output buffers changed")
-                        encoderOutputBuffers = encoder.outputBuffers
-                        break
-                    }
                     if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                        if (listener != null) {
-                            if (listener.onEncoderFormatChanged(encoder)) {
-                                return
-                            }
+                        if (listener?.onEncoderFormatChanged(encoder) == true) {
+                            return
                         }
                         break
                     }
                     if (encoderOutputBufferIndex < 0) {
                         break
                     }
-                    val encoderOutputBuffer = encoderOutputBuffers[encoderOutputBufferIndex]
+                    val encoderOutputBuffer = requireNotNull(encoder.getOutputBuffer(encoderOutputBufferIndex))
                     // NOTE:エンコーダに何か入力しないと
                     // encoderOutputBufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
                     // にならないエンコーダがあるので注意。
@@ -321,6 +313,8 @@ class VideoShrink(private val extractor: MediaExtractor,
         }
         val codecName = codec.name
         return try {
+            // 古いAndroidではNullableだったのでそのまま残している
+            @Suppress("RedundantNullableReturnType")
             val decoder: MediaCodec? = MediaCodec.createByCodecName(codecName)
             if (decoder != null) {
                 decoder.configure(format, surface, null, 0)

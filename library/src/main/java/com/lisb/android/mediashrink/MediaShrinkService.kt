@@ -136,7 +136,6 @@ class MediaShrinkService : Service() {
         const val RESULT_RECOVERABLE_ERROR_EXCEPTION = "exception"
         const val RESULT_UNRECOVERABLE_ERROR_MSGID = 4
         const val RESULT_UNRECOVERABLE_ERROR_EXCEPTION = "exception"
-        private val TAG = MediaShrinkService::class.java
-                .simpleName
+        private const val TAG = "MediaShrinkService"
     }
 }

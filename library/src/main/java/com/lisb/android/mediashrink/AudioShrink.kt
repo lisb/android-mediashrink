@@ -18,19 +18,21 @@ class AudioShrink(private val extractor: MediaExtractor,
      */
     private fun createEncoderConfigurationFormat(origin: MediaFormat): MediaFormat {
         val channelCount = origin.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-        val format = MediaFormat.createAudioFormat(ENCODE_MIMETYPE,
-                origin.getInteger(MediaFormat.KEY_SAMPLE_RATE), channelCount)
+        val sampleRate = origin.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+        val format = MediaFormat.createAudioFormat(ENCODE_MIMETYPE, sampleRate, channelCount)
         // TODO ビットレートが元の値より大きくならないようにする
         format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate)
         format.setInteger(MediaFormat.KEY_AAC_PROFILE, AAC_PROFILE)
-        Timber.tag(TAG).d("create audio encoder configuration format:%s", Utils.toString(format))
+        Timber.tag(TAG).d("create audio encoder configuration format:%s. origin:%s",
+                Utils.toString(format), Utils.toString(origin))
         return format
     }
 
     @Throws(DecodeException::class)
     private fun reencode(trackIndex: Int, newTrackIndex: Int?, listener: ReencodeListener?) {
+        Timber.tag(TAG).d("reencode. trackIndex:%d, newTrackIndex:%d, isNull(listener):%b",
+                trackIndex, newTrackIndex, listener == null)
         val originalFormat = extractor.getTrackFormat(trackIndex)
-        Timber.tag(TAG).d("original format:%s", Utils.toString(originalFormat))
         val encoderConfigurationFormat = createEncoderConfigurationFormat(originalFormat)
         var encoder: MediaCodec? = null
         var decoder: MediaCodec? = null
@@ -41,8 +43,6 @@ class AudioShrink(private val extractor: MediaExtractor,
         try { // create encoder
             encoder = createEncoder(encoderConfigurationFormat)
             encoder.start()
-            val encoderInputBuffers = encoder.inputBuffers
-            var encoderOutputBuffers = encoder.outputBuffers
             val encoderOutputBufferInfo = MediaCodec.BufferInfo()
             // create decorder
             decoder = createDecoder(originalFormat)
@@ -51,8 +51,6 @@ class AudioShrink(private val extractor: MediaExtractor,
                 throw DecodeException("audio decoder not found.")
             }
             decoder.start()
-            val decoderInputBuffers = decoder.inputBuffers
-            var decoderOutputBuffers = decoder.outputBuffers
             val decoderOutputBufferInfo = MediaCodec.BufferInfo()
             extractor.selectTrack(trackIndex)
             var extractorDone = false
@@ -65,14 +63,16 @@ class AudioShrink(private val extractor: MediaExtractor,
             while (true) { // read from extractor, write to decoder
                 while (!extractorDone) {
                     val decoderInputBufferIndex = decoder.dequeueInputBuffer(TIMEOUT_USEC)
-                    if (decoderInputBufferIndex < 0) break
-                    val decoderInputBuffer = decoderInputBuffers[decoderInputBufferIndex]
+                    if (decoderInputBufferIndex < 0) {
+                        break
+                    }
+                    val decoderInputBuffer = requireNotNull(decoder.getInputBuffer(decoderInputBufferIndex))
                     val size = extractor.readSampleData(decoderInputBuffer, 0)
                     // extractor.advance() より先に行うこと
                     val pts = extractor.sampleTime
                     var sampleFlags = extractor.sampleFlags
-                    Timber.tag(TAG).v("audio extractor output. size:%d, sample time:%d, sample flags:%d", size,
-                            pts, sampleFlags)
+                    Timber.tag(TAG).v("audio extractor output. buffer.pos:%d, buffer.limit:%d, size:%d, sample time:%d, sample flags:%d",
+                            decoderInputBuffer.position(), decoderInputBuffer.limit(), size, pts, sampleFlags)
                     extractorDone = !extractor.advance()
                     if (extractorDone) {
                         Timber.tag(TAG).d("audio extractor: EOS, size:%d, sampleCount:%d",
@@ -98,13 +98,14 @@ class AudioShrink(private val extractor: MediaExtractor,
                 }
                 // read from decoder
                 while (!decoderDone && pendingDecoderOutputBufferIndex == -1) {
-                    val decoderOutputBufferIndex = decoder.dequeueOutputBuffer(decoderOutputBufferInfo,
-                            TIMEOUT_USEC)
-                    if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
-                        Timber.tag(TAG).d("audio decoder: output buffers changed")
-                        decoderOutputBuffers = decoder.outputBuffers
-                        break
-                    }
+                    val decoderOutputBufferIndex = decoder.dequeueOutputBuffer(
+                            decoderOutputBufferInfo, TIMEOUT_USEC)
+                    Timber.tag(TAG).v("audio decoder output. bufferIndex:%d, time:%d, offset:%d, size:%d, flags:%d",
+                            decoderOutputBufferIndex,
+                            decoderOutputBufferInfo.presentationTimeUs,
+                            decoderOutputBufferInfo.offset,
+                            decoderOutputBufferInfo.size,
+                            decoderOutputBufferInfo.flags)
                     if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                         Timber.tag(TAG).d("audio decoder: output format changed. %s",
                                 Utils.toString(decoder.outputFormat))
@@ -120,17 +121,11 @@ class AudioShrink(private val extractor: MediaExtractor,
                         break
                     }
                     pendingDecoderOutputBufferIndex = decoderOutputBufferIndex
-                    val pts = decoderOutputBufferInfo.presentationTimeUs
-                    Timber.tag(TAG).v("audio decoder output. time:%d, offset:%d, size:%d, flags:%d",
-                            pts,
-                            decoderOutputBufferInfo.offset,
-                            decoderOutputBufferInfo.size,
-                            decoderOutputBufferInfo.flags)
-                    if (lastDecoderOutputPts >= pts) {
+                    if (lastDecoderOutputPts >= decoderOutputBufferInfo.presentationTimeUs) {
                         Timber.tag(TAG).w("decoder output pts(%d) is smaller than last pts(%d)",
-                                pts, lastDecoderOutputPts)
+                                decoderOutputBufferInfo.presentationTimeUs, lastDecoderOutputPts)
                     } else {
-                        lastDecoderOutputPts = pts
+                        lastDecoderOutputPts = decoderOutputBufferInfo.presentationTimeUs
                     }
                     break
                 }
@@ -140,8 +135,8 @@ class AudioShrink(private val extractor: MediaExtractor,
                     if (encoderInputBufferIndex < 0) {
                         break
                     }
-                    val encoderInputBuffer = encoderInputBuffers[encoderInputBufferIndex]
-                    val decoderOutputBuffer = decoderOutputBuffers[pendingDecoderOutputBufferIndex]
+                    val encoderInputBuffer = requireNotNull(encoder.getInputBuffer(encoderInputBufferIndex))
+                    val decoderOutputBuffer = requireNotNull(decoder.getOutputBuffer(pendingDecoderOutputBufferIndex))
                             .duplicate()
                     decoderOutputBuffer.position(decoderOutputBufferInfo.offset)
                     decoderOutputBuffer.limit(decoderOutputBufferInfo.offset
@@ -166,34 +161,34 @@ class AudioShrink(private val extractor: MediaExtractor,
                 }
                 // write to muxer
                 while (true) {
-                    val encoderOutputBufferIndex = encoder.dequeueOutputBuffer(encoderOutputBufferInfo,
-                            TIMEOUT_USEC)
-                    if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
-                        Timber.tag(TAG).d("audio encoder: output buffers changed")
-                        encoderOutputBuffers = encoder.outputBuffers
-                        break
-                    }
+                    val encoderOutputBufferIndex = encoder.dequeueOutputBuffer(
+                            encoderOutputBufferInfo, TIMEOUT_USEC)
+                    Timber.tag(TAG).v("audio encoder output. bufferIndex:%d, time:%d, offset:%d, size:%d, flags:%d",
+                            encoderOutputBufferIndex,
+                            encoderOutputBufferInfo.presentationTimeUs,
+                            encoderOutputBufferInfo.offset,
+                            encoderOutputBufferInfo.size,
+                            encoderOutputBufferInfo.flags)
+
                     if (encoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) { // エンコーダに何か入力しないと、ここに来ないエンコーダがあるので注意。
                         if (listener?.onEncoderFormatChanged(encoder) == true) return
                         break
                     }
                     if (encoderOutputBufferIndex < 0) break
 
-                    val encoderOutputBuffer = encoderOutputBuffers[encoderOutputBufferIndex]
+                    val encoderOutputBuffer = requireNotNull(encoder.getOutputBuffer(encoderOutputBufferIndex))
                     // NOTE: flags が MediaCodec.BUFFER_FLAG_CODEC_CONFIG かつ BUFFER_FLAG_END_OF_STREAM
                     // のときがあるので注意。
                     if (encoderOutputBufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0
                             && encoderOutputBufferInfo.size != 0) {
-                        val pts = encoderOutputBufferInfo.presentationTimeUs
-                        if (lastEncoderOutputPts >= pts) {
+                        if (lastEncoderOutputPts >= encoderOutputBufferInfo.presentationTimeUs) {
                             Timber.tag(TAG).w("encoder output pts(%d) is smaller than last pts(%d)",
-                                    pts, lastEncoderOutputPts)
+                                    encoderOutputBufferInfo.presentationTimeUs, lastEncoderOutputPts)
                         } else {
                             if (newTrackIndex != null) {
-                                muxer.writeSampleData(newTrackIndex,
-                                        encoderOutputBuffer,
+                                muxer.writeSampleData(newTrackIndex, encoderOutputBuffer,
                                         encoderOutputBufferInfo)
-                                lastEncoderOutputPts = pts
+                                lastEncoderOutputPts = encoderOutputBufferInfo.presentationTimeUs
                                 // 進捗更新
                                 if ((System.nanoTime() - startTimeNs) / 1000 / 1000 > UPDATE_PROGRESS_INTERVAL_MS
                                         * (deliverProgressCount + 1)) {
@@ -203,11 +198,6 @@ class AudioShrink(private val extractor: MediaExtractor,
                             }
                         }
                     }
-                    Timber.tag(TAG).v("audio encoder output. time:%d, offset:%d, size:%d, flags:%d",
-                            encoderOutputBufferInfo.presentationTimeUs,
-                            encoderOutputBufferInfo.offset,
-                            encoderOutputBufferInfo.size,
-                            encoderOutputBufferInfo.flags)
                     encoder.releaseOutputBuffer(encoderOutputBufferIndex, false)
                     if (encoderOutputBufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
                         Timber.tag(TAG).d("audio encoder: EOS")
@@ -265,6 +255,8 @@ class AudioShrink(private val extractor: MediaExtractor,
         }
         val codecName = codec.name
         return try {
+            // 古いAndroidではNullableだったのでそのまま残している
+            @Suppress("RedundantNullableReturnType")
             val decoder: MediaCodec? = MediaCodec.createByCodecName(codecName)
             if (decoder != null) {
                 decoder.configure(format, null, null, 0)
