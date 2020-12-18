@@ -265,12 +265,12 @@ class VideoShrink(private val extractor: MediaExtractor,
             errorCallback.onUnrecoverableError(e)
         } finally {
             if (encoder != null) {
-                encoder.stop()
+                encoder.stopWithTimeout()
                 encoder.release()
             }
             inputSurface?.release()
             if (decoder != null) {
-                decoder.stop()
+                decoder.stopWithTimeout()
                 decoder.release()
             }
             outputSurface?.release()

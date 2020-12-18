@@ -262,11 +262,11 @@ class AudioShrink(private val extractor: MediaExtractor,
             errorCallback.onUnrecoverableError(e)
         } finally {
             if (encoder != null) {
-                encoder.stop()
+                encoder.stopWithTimeout()
                 encoder.release()
             }
             if (decoder != null) {
-                decoder.stop()
+                decoder.stopWithTimeout()
                 decoder.release()
             }
             extractor.unselectTrack(trackIndex)

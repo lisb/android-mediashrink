@@ -1,6 +1,5 @@
 package com.lisb.android.mediashrink
 
-import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaCodecInfo.CodecProfileLevel
 import android.media.MediaCodecList
@@ -69,14 +68,6 @@ object Utils {
             c.close()
         } catch (e: IOException) {
         }
-    }
-
-    fun closeSilently(codec: MediaCodec?) {
-        if (codec == null) {
-            return
-        }
-        codec.stop()
-        codec.release()
     }
 
     /**
