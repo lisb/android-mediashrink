@@ -51,7 +51,7 @@ afterEvaluate {
                 artifact tasks.androidSourcesJar
                 groupId = 'com.lisb.android.mediashrink'
                 artifactId = 'mediashrink'
-                version = '2.0.2'
+                version = '2.0.3-SNAPSHOT'
             }
         }
     }
