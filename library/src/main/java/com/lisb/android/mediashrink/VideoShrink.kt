@@ -14,7 +14,9 @@ class VideoShrink(private val extractor: MediaExtractor,
                   metadataRetriever: MediaMetadataRetriever,
                   private val muxer: MediaMuxer,
                   private val errorCallback: UnrecoverableErrorCallback) {
-    private val rotation = metadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION).toInt()
+    private val rotation =
+        metadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+            ?.toInt() ?: 0
     var bitRate = 0
 
     /**
