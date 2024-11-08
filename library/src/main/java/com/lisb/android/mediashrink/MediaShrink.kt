@@ -181,10 +181,13 @@ internal class MediaShrink(private val context: Context) {
         onProgressListener?.onProgress(progress * 100 / maxProgress)
     }
 
-    @Throws(TooMovieLongException::class)
+    @Throws(TooMovieLongException::class, IOException::class)
     private fun checkLength(metadataRetriever: MediaMetadataRetriever) {
         if (durationLimit <= 0) return
-        val durationSec = (metadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)).toLong() / 1000
+        val duration =
+            metadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?: throw IOException("Failed to read duration.")
+        val durationSec = duration.toLong() / 1000
         if (durationSec > durationLimit) {
             Timber.tag(TAG).e("Movie duration(%d sec) is longer than duration limit(%d sec).",
                     durationSec, durationLimit)
@@ -205,9 +208,6 @@ internal class MediaShrink(private val context: Context) {
         private const val PROGRESS_ADD_TRACK = 10
         private const val PROGRESS_WRITE_CONTENT = 40
         fun isSupportedDevice(context: Context): Boolean {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR2) {
-                return false
-            }
             return OpenglUtils.supportsOpenglEs2(context)
         }
     }
