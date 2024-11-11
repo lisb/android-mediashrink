@@ -1,6 +1,5 @@
 package com.lisb.android.mediashrink.example
 
-import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ContentResolver
 import android.content.Intent
@@ -16,20 +15,19 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import androidx.lifecycle.lifecycleScope
 import com.lisb.android.mediashrink.MediaShrinkQueue
-import kotlinx.coroutines.*
+import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.io.File
-import kotlin.coroutines.CoroutineContext
 
-class ExampleActivity : AppCompatActivity(), View.OnClickListener, CoroutineScope {
+class ExampleActivity : AppCompatActivity(), View.OnClickListener {
     private lateinit var progress: View
     private lateinit var txtSelectedVideoPath: TextView
     private lateinit var btnStartReencoding: View
     private lateinit var btnPlaySelectedVideo: View
     private lateinit var btnPlayReencodedVideo: View
     private lateinit var mediaShrinkQueue: MediaShrinkQueue
-    private lateinit var job: Job
     private var selectedVideoUri: Uri? = null
 
     private val outputDir: File
@@ -37,13 +35,10 @@ class ExampleActivity : AppCompatActivity(), View.OnClickListener, CoroutineScop
     private val outputFile: File
         get() = File(outputDir, EXPORT_FILE)
 
-    override val coroutineContext: CoroutineContext
-        get() = job + Dispatchers.Main
-
-    @SuppressLint("SetTextI18n")
+    @Suppress("SetTextI18n")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        job = SupervisorJob()
+
         setContentView(R.layout.activity_example)
         // wiring
         val btnCaptureVideo = findViewById<View>(R.id.btn_select_video)
@@ -66,11 +61,6 @@ class ExampleActivity : AppCompatActivity(), View.OnClickListener, CoroutineScop
         }
         mediaShrinkQueue = MediaShrinkQueue(this.applicationContext, Handler(), filesDir,
                 MAX_WIDTH, VIDEO_BITRATE, AUDIO_BITRATE, DURATION_LIMIT)
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        job.cancel()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -137,7 +127,7 @@ class ExampleActivity : AppCompatActivity(), View.OnClickListener, CoroutineScop
         progress.visibility = View.VISIBLE
         outputDir.mkdirs()
 
-        launch {
+        lifecycleScope.launch {
             try {
                 mediaShrinkQueue.queue(selectedVideoUri!!, Uri.fromFile(outputFile))
                 progress.visibility = View.GONE
