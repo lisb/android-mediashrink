@@ -87,12 +87,12 @@ class ExampleActivity : AppCompatActivity(), View.OnClickListener, CoroutineScop
 
     override fun onContextItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
-            R.id.select_from_gallary -> {
+            R.id.select_from_gallery -> {
                 val intent = Intent(Intent.ACTION_GET_CONTENT)
                 intent.putExtra(Intent.EXTRA_LOCAL_ONLY, true)
                 intent.type = "video/*"
                 if (intent.resolveActivity(packageManager) != null) {
-                    startActivityForResult(intent, RCODE_SELECT_FROM_GALLARY)
+                    startActivityForResult(intent, RCODE_SELECT_FROM_GALLERY)
                 } else {
                     Toast.makeText(this, "Activity Not Found.", Toast.LENGTH_SHORT)
                             .show()
@@ -185,6 +185,6 @@ class ExampleActivity : AppCompatActivity(), View.OnClickListener, CoroutineScop
         private const val EXPORT_FILE = "video.mp4"
         private const val SAVED_SELECTED_URI = "selected_uri"
         private const val RCODE_CAPTURE_VIDEO = 1
-        private const val RCODE_SELECT_FROM_GALLARY = 2
+        private const val RCODE_SELECT_FROM_GALLERY = 2
     }
 }

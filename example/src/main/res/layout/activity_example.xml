@@ -11,7 +11,9 @@
 	        android:id="@+id/btn_select_video"
 	        android:layout_width="wrap_content"
 	        android:layout_height="wrap_content"
-	        android:text="Select Video" />
+	        android:text="Select Video"
+			android:textAllCaps="false"
+			/>
 
 	    <TextView
 	        android:id="@+id/txt_selected_video_path"
@@ -26,6 +28,7 @@
 	        android:layout_height="wrap_content"
 	        android:enabled="false"
 	        android:text="Play Selected Video"
+			android:textAllCaps="false"
 	        />
 	    
 	    <Button
@@ -33,7 +36,8 @@
 	        android:layout_width="wrap_content"
 	        android:layout_height="wrap_content"
 	        android:enabled="false"
-	        android:text="Start reencoding"
+	        android:text="Start Reencoding"
+			android:textAllCaps="false"
 	        />
 	    
 	    <ImageView
@@ -48,6 +52,7 @@
 	        android:layout_height="wrap_content"
 	        android:enabled="false"
 	        android:text="Play Reencoded Video"
+			android:textAllCaps="false"
 	        />
 	    
 	</LinearLayout>
