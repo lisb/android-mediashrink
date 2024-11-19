@@ -1,7 +1,8 @@
 package com.lisb.android.mediashrink.example
 
-import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.ContentResolver
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -13,6 +14,8 @@ import android.view.MenuItem
 import android.view.View
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContract
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
@@ -29,6 +32,32 @@ class ExampleActivity : AppCompatActivity(), View.OnClickListener {
     private lateinit var btnPlayReencodedVideo: View
     private lateinit var mediaShrinkQueue: MediaShrinkQueue
     private var selectedVideoUri: Uri? = null
+
+    private val selectVideoLauncher =
+        registerForActivityResult(object: ActivityResultContracts.GetContent() {
+            override fun createIntent(context: Context, input: String): Intent {
+                return super.createIntent(context, input).apply {
+                    putExtra(Intent.EXTRA_LOCAL_ONLY, true)
+                }
+            }
+        }) {
+            onFileSelected(it)
+        }
+
+    private val captureVideoLauncher =
+        registerForActivityResult(object: ActivityResultContract<Unit, Uri?>(){
+            override fun createIntent(context: Context, input: Unit): Intent {
+                return Intent(MediaStore.ACTION_VIDEO_CAPTURE).apply {
+                    putExtra(MediaStore.EXTRA_DURATION_LIMIT, DURATION_LIMIT)
+                    putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 1)
+                }
+            }
+            override fun parseResult(resultCode: Int, intent: Intent?): Uri? {
+                return intent?.data
+            }
+        }) {
+            onFileSelected(it)
+        }
 
     private val outputDir: File
         get() = File(filesDir, EXPORT_DIR)
@@ -76,37 +105,27 @@ class ExampleActivity : AppCompatActivity(), View.OnClickListener {
     }
 
     override fun onContextItemSelected(item: MenuItem): Boolean {
-        when (item.itemId) {
+        return when (item.itemId) {
             R.id.select_from_gallery -> {
-                val intent = Intent(Intent.ACTION_GET_CONTENT)
-                intent.putExtra(Intent.EXTRA_LOCAL_ONLY, true)
-                intent.type = "video/*"
-                if (intent.resolveActivity(packageManager) != null) {
-                    startActivityForResult(intent, RCODE_SELECT_FROM_GALLERY)
-                } else {
+                try {
+                    selectVideoLauncher.launch("video/*")
+                } catch (e: ActivityNotFoundException) {
                     Toast.makeText(this, "Activity Not Found.", Toast.LENGTH_SHORT)
-                            .show()
+                        .show()
                 }
+                true
             }
-            R.id.capture_video -> {
-                val intent = Intent(MediaStore.ACTION_VIDEO_CAPTURE)
-                intent.putExtra(MediaStore.EXTRA_DURATION_LIMIT, DURATION_LIMIT)
-                intent.putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 1)
-                if (intent.resolveActivity(packageManager) != null) {
-                    startActivityForResult(intent, RCODE_CAPTURE_VIDEO)
-                } else {
-                    Toast.makeText(this, "Activity Not Found.", Toast.LENGTH_SHORT)
-                            .show()
-                }
-            }
-        }
-        return super.onContextItemSelected(item)
-    }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode == Activity.RESULT_OK) {
-            onFileSelected(data!!.data)
+            R.id.capture_video -> {
+                try {
+                    captureVideoLauncher.launch(Unit)
+                } catch (e: ActivityNotFoundException) {
+                    Toast.makeText(this, "Activity Not Found.", Toast.LENGTH_SHORT)
+                        .show()
+                }
+                true
+            }
+            else -> super.onContextItemSelected(item)
         }
     }
 
@@ -174,7 +193,5 @@ class ExampleActivity : AppCompatActivity(), View.OnClickListener {
         private const val EXPORT_DIR = "exports"
         private const val EXPORT_FILE = "video.mp4"
         private const val SAVED_SELECTED_URI = "selected_uri"
-        private const val RCODE_CAPTURE_VIDEO = 1
-        private const val RCODE_SELECT_FROM_GALLERY = 2
     }
 }
